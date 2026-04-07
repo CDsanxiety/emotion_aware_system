@@ -1,0 +1,9 @@
+fer==25.10.3
+SpeechRecognition==3.10.0
+opencv-python
+numpy
+PyAudio
+python-dotenv
+openai
+edge-tts>=6.1.0
+pillow
