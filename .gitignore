@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
-
-.env
+.env*
+*.mp3
+logs/

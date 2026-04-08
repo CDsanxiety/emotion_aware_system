@@ -1,74 +1,70 @@
+# app.py
 import gradio as gr
 import json
-import asyncio
-import edge_tts
-import os
-import tempfile
-import vision
-import audio
-import llm_api
+from vision import process_image
+from audio import recognize_speech
+from llm_api import get_response
+from debug_mode import EMOTION_OPTIONS, PRESET_TESTS
 
-# ================== 辅助函数：语音合成 ==================
-async def text_to_speech(text):
-    """使用 edge-tts 将文字转为语音文件"""
-    if not text:
-        return None
-    
-    # 挑一个温柔的中国女生声音：晓晓 (Xiaoxiao)
-    VOICE = "zh-CN-XiaoxiaoNeural"
-    communicate = edge_tts.Communicate(text, VOICE)
-    
-    # 创建临时文件保存音频
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    await communicate.save(temp_file.name)
-    return temp_file.name
 
 # ================== 核心胶水逻辑 ==================
 def main_process(image, audio_input):
     """
-    当录音触发时调用的主逻辑
-    1. 分析面部表情
-    2. 将语音转为文字
-    3. 调用 LLM 获取分析结果（JSON 格式）
-    4. 生成语音文件
+    正常模式：摄像头拍照 + 麦克风录音
     """
     # Step 1: 视觉分析
-    detected_emotion = vision.process_image(image)
+    detected_emotion = process_image(image) if image is not None else "neutral"
     print(f"[Log] 检测到表情: {detected_emotion}")
 
     # Step 2: 语音转文字
-    voice_text = ""
-    if audio_input:
-        print(f"[Log] 正在处理语音文件: {audio_input}")
-        voice_text = audio.transcribe_file(audio_input)
-    
+    voice_text = recognize_speech() if audio_input is not None else ""
     print(f"[Log] 语音内容: {voice_text}")
 
-    # Step 3: 智脑决策 (调用 LLM)
-    llm_output_raw = llm_api.call_llm(detected_emotion, voice_text)
-    
-    # 尝试解析 JSON
-    try:
-        # 去掉 Markdown 的 ```json 标记（如果大模型不听话加了的话）
-        clean_json = llm_output_raw.replace("```json", "").replace("```", "").strip()
-        decision_data = json.loads(clean_json)
-    except Exception as e:
-        print(f"[Error] JSON 解析失败: {e}")
-        decision_data = {
-            "analyzed_emotion": "未知",
-            "appliance_actions": ["由于解析错误，暂无指令"],
-            "robot_speech": llm_output_raw # 即使解析失败也保留文字
+    # Step 3: 调用 LLM（返回 dict）
+    result = get_response(detected_emotion, voice_text, enable_tts=True)
+
+    # Step 4: 语音文件路径（TTS 在 get_response 里已生成）
+    audio_path = "response.mp3"
+
+    return result, audio_path
+
+
+def debug_process(emotion, text):
+    """
+    Debug 模式：手动输入
+    """
+    if not text or text.strip() == "":
+        result = {
+            "emotion": emotion,
+            "action": "无动作",
+            "reply": "你想说什么呢？我在听～"
         }
+    else:
+        result = get_response(emotion, text, enable_tts=True)
 
-    # Step 4: 生成声音
-    robot_speech_text = decision_data.get("robot_speech", "我没听清楚呢")
-    audio_path = asyncio.run(text_to_speech(robot_speech_text))
+    audio_path = "response.mp3"
+    return result, audio_path
 
-    return decision_data, audio_path
+
+def fill_preset(preset_name):
+    """填充预设"""
+    if preset_name and preset_name in PRESET_TESTS:
+        return PRESET_TESTS[preset_name]
+    return "neutral", ""
+
+
+def format_reply_text(result):
+    """格式化显示回复文字"""
+    if result and isinstance(result, dict):
+        reply = result.get("reply", "")
+        emotion = result.get("emotion", "")
+        action = result.get("action", "")
+        return f"### 💬 暖暖说：{reply}\n\n> 😊 情绪：{emotion} ｜ 🎬 动作：{action}"
+    return "### 💬 等待交互..."
 
 
 # ================== UI 布局设计 ==================
-with gr.Blocks(theme=gr.themes.Soft(), title="暖暖情感机器人仿真系统") as demo:
+with gr.Blocks(title="暖暖情感机器人仿真系统") as demo:
     gr.Markdown("""
     # 🤖 暖暖：情感感知智能家居伴侣
     项目定位：国家级仿真比赛作品 | 硬件协同：多模态情感计算
@@ -77,42 +73,92 @@ with gr.Blocks(theme=gr.themes.Soft(), title="暖暖情感机器人仿真系统"
     with gr.Row():
         # 左侧：视觉抓取
         with gr.Column(scale=1):
-            camera_input = gr.Image(label="实时面部捕捉", sources=["webcam"], mirror_webcam=True)
-            gr.Markdown("<center>📸 系统会自动抓取快照进行情绪分析</center>")
-        
+            camera_input = gr.Image(
+                label="📸 实时面部捕捉",
+                sources=["webcam"],
+                type="numpy"
+            )
+            gr.Markdown("<center>点击上方按钮拍照</center>")
+
         # 右侧：语音交互
         with gr.Column(scale=1):
-            audio_input = gr.Audio(label="按住说话 (Microphone)", sources=["microphone"], type="filepath")
-            run_btn = gr.Button("🚀 触发深度融合感知", variant="primary")
-            
+            audio_input = gr.Audio(
+                label="🎤 按住说话",
+                sources=["microphone"],
+                type="numpy"
+            )
+            run_btn = gr.Button("🚀 触发深度融合感知", variant="primary", size="lg")
+
     # 中间：输出展示
     with gr.Row():
         with gr.Column(scale=1):
-            json_output = gr.JSON(label="🧠 多模态融合决策中心 (JSON Panel)")
+            json_output = gr.JSON(label="🧠 多模态融合决策中心")
         with gr.Column(scale=1):
             speech_output = gr.Audio(label="📢 暖暖的语音回复", autoplay=True)
-            
-    # 机器人语录（大号显示）
-    robot_text_display = gr.Markdown("### 💬 机器人回复： 等待交互...")
+
+    # 机器人语录
+    robot_text_display = gr.Markdown("### 💬 暖暖说：等待交互...")
 
     # 事件绑定
-    def update_text(decision):
-        return f"### 💬 机器人回复：\n> {decision.get('robot_speech', '')}"
-
     run_btn.click(
         fn=main_process,
         inputs=[camera_input, audio_input],
         outputs=[json_output, speech_output]
     ).then(
-        fn=update_text,
+        fn=format_reply_text,
         inputs=[json_output],
         outputs=[robot_text_display]
     )
 
+    # ========== Debug Mode 折叠栏 ==========
+    with gr.Accordion("🔧 Debug Mode ", open=False):
+        gr.Markdown("### ⚠️ 仅限摄像头/麦克风/网络故障时使用")
+        gr.Markdown("手动输入情绪和文字，绕过硬件直接测试大模型能力")
+
+        with gr.Row():
+            with gr.Column():
+                debug_emotion = gr.Dropdown(
+                    choices=EMOTION_OPTIONS,
+                    label="😊 手动选择表情",
+                    value="neutral"
+                )
+                preset_dropdown = gr.Dropdown(
+                    choices=list(PRESET_TESTS.keys()),
+                    label="📋 快捷预设场景",
+                    value=None
+                )
+                debug_text = gr.Textbox(
+                    label="💬 手动输入文字",
+                    placeholder="输入你想说的话...",
+                    lines=3
+                )
+                debug_btn = gr.Button("🚀 Debug 发送", variant="secondary")
+
+            with gr.Column():
+                debug_json = gr.JSON(label="📤 Debug 输出")
+                debug_audio = gr.Audio(label="📢 语音输出", autoplay=True)
+                debug_reply = gr.Markdown("### 💬 等待 Debug 结果...")
+
+        preset_dropdown.change(
+            fn=fill_preset,
+            inputs=[preset_dropdown],
+            outputs=[debug_emotion, debug_text]
+        )
+
+        debug_btn.click(
+            fn=debug_process,
+            inputs=[debug_emotion, debug_text],
+            outputs=[debug_json, debug_audio]
+        ).then(
+            fn=format_reply_text,
+            inputs=[debug_json],
+            outputs=[debug_reply]
+        )
+
     gr.Markdown("""
     ---
-    **技术支撑：** FER (Facial Expression Recognition) + Whisper / Google STT + LLM (DeepSeek/Qwen) + Edge-TTS
+    **技术支撑：** FER + Google STT + Qwen-Turbo + Edge-TTS
     """)
 
 if __name__ == "__main__":
-    demo.launch(server_port=7860, show_error=True)
+    demo.launch(server_port=7860, show_error=True, theme=gr.themes.Soft())
