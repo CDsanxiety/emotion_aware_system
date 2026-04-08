@@ -100,9 +100,10 @@ def call_llm(emotion: str, user_text: str, prompt_file: str = "prompt.txt") -> d
         }
 
 
-def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True) -> dict:
+def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True) -> tuple:
     """
-    统一接口：接收表情和语音文本，返回完整 JSON 响应
+    统一接口：接收表情和语音文本，返回完整 JSON 响应和生成的音频路径
+    返回格式: (result_dict, audio_path)
     """
     if not voice_text or voice_text.strip() == "":
         result = {
@@ -116,14 +117,15 @@ def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True) ->
     reply_text = result.get("reply", "")
     logger.info(f"表情: {face_emotion} | 动作: {result.get('action')} | 回复: {reply_text[:30]}...")
 
+    audio_path = None
     if enable_tts and reply_text:
-        speak_sync(reply_text)
+        audio_path = speak_sync(reply_text)
 
-    return result
+    return result, audio_path
 
 
 # 测试用
 if __name__ == "__main__":
     print("测试 LLM + TTS 联动（JSON 模式）...")
-    result = get_response("happy", "今天天气真好", enable_tts=True)
+    result, audio_path = get_response("happy", "今天天气真好", enable_tts=True)
     print(f"返回结果: {json.dumps(result, ensure_ascii=False, indent=2)}")

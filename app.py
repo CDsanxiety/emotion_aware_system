@@ -2,7 +2,7 @@
 import gradio as gr
 import json
 from vision import process_image
-from audio import recognize_speech
+from audio import transcribe_file
 from llm_api import get_response
 from debug_mode import EMOTION_OPTIONS, PRESET_TESTS
 
@@ -17,14 +17,11 @@ def main_process(image, audio_input):
     print(f"[Log] 检测到表情: {detected_emotion}")
 
     # Step 2: 语音转文字
-    voice_text = recognize_speech() if audio_input is not None else ""
+    voice_text = transcribe_file(audio_input) if audio_input is not None else ""
     print(f"[Log] 语音内容: {voice_text}")
 
-    # Step 3: 调用 LLM（返回 dict）
-    result = get_response(detected_emotion, voice_text, enable_tts=True)
-
-    # Step 4: 语音文件路径（TTS 在 get_response 里已生成）
-    audio_path = "response.mp3"
+    # Step 3 & 4: 调用 LLM 并在内部生成 TTS 语音，获取动态生成的音频文件路径
+    result, audio_path = get_response(detected_emotion, voice_text, enable_tts=True)
 
     return result, audio_path
 
@@ -33,16 +30,7 @@ def debug_process(emotion, text):
     """
     Debug 模式：手动输入
     """
-    if not text or text.strip() == "":
-        result = {
-            "emotion": emotion,
-            "action": "无动作",
-            "reply": "你想说什么呢？我在听～"
-        }
-    else:
-        result = get_response(emotion, text, enable_tts=True)
-
-    audio_path = "response.mp3"
+    result, audio_path = get_response(emotion, text, enable_tts=True)
     return result, audio_path
 
 
@@ -85,7 +73,7 @@ with gr.Blocks(title="暖暖情感机器人仿真系统") as demo:
             audio_input = gr.Audio(
                 label="🎤 按住说话",
                 sources=["microphone"],
-                type="numpy"
+                type="filepath"
             )
             run_btn = gr.Button("🚀 触发深度融合感知", variant="primary", size="lg")
 
