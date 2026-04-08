@@ -1,44 +1,18 @@
-# vision.py - 表情识别模块
-import cv2
-from fer.fer import FER
+# audio.py
+import speech_recognition as sr
 
-# 初始化检测器（全局，只加载一次）
-detector = FER(mtcnn=True)
+recognizer = sr.Recognizer()
 
-
-def get_current_emotion() -> str:
+def recognize_speech(timeout: int = 5, phrase_time_limit: int = 8) -> str:
     """
-    实时从摄像头获取当前表情
-    返回值示例: 'happy', 'sad', 'angry', 'neutral', 'surprise' 等
-    如果未检测到人脸，返回 'neutral'
+    从麦克风录音并返回识别的文字（中文）
+    失败时返回空字符串 ""
     """
-    cap = cv2.VideoCapture(0)
-
-    if not cap.isOpened():
-        print("⚠️ 无法打开摄像头")
-        return "neutral"
-
-    ret, frame = cap.read()
-    cap.release()
-
-    if not ret:
-        return "neutral"
-
-    # 检测表情
-    emotions = detector.detect_emotions(frame)
-
-    if not emotions:
-        return "neutral"
-
-    # 获取主导表情
-    emo_dict = emotions[0]["emotions"]
-    dominant_emotion = max(emo_dict, key=emo_dict.get)
-
-    return dominant_emotion
-
-
-# 测试函数（直接运行本文件时执行）
-if __name__ == "__main__":
-    print("正在检测表情... 请看向摄像头")
-    emotion = get_current_emotion()
-    print(f"当前检测到的表情: {emotion}")
+    with sr.Microphone() as source:
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+            text = recognizer.recognize_google(audio, language="zh-CN")
+            return text.strip()
+        except:
+            return ""   # 任何错误都返回空字符串

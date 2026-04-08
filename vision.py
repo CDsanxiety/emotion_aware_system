@@ -1,48 +1,61 @@
+# vision.py
 import cv2
 from fer.fer import FER
-import time
+
+# 全局初始化一次，避免重复加载模型
+detector = FER(mtcnn=True)
 
 
-def detect_emotion_from_camera():
-    """实时摄像头表情识别测试"""
-    detector = FER(mtcnn=True)  # mtcnn 更准确，但稍慢
-    cap = cv2.VideoCapture(0)  # 0 表示默认摄像头
+def process_image(frame) -> str:
+    """
+    接收 Gradio 传入的图像帧（numpy array），返回主导表情
+    参数:
+        frame: Gradio 传来的图像（BGR 格式的 numpy array）
+    返回:
+        'happy', 'sad', 'angry', 'surprise', 'neutral', 'fear', 'disgust' 之一
+    """
+    if frame is None:
+        return "neutral"
 
-    print("按 'q' 键退出摄像头表情识别...")
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # FER 检测表情
+    try:
+        # FER 直接分析传入的帧
         emotions = detector.detect_emotions(frame)
 
-        if emotions:
-            for emotion in emotions:
-                box = emotion["box"]  # 人脸位置
-                emo_dict = emotion["emotions"]
-                dominant_emotion = max(emo_dict, key=emo_dict.get)
-                score = emo_dict[dominant_emotion]
+        if not emotions:
+            return "neutral"
 
-                # 画框和文字
-                cv2.rectangle(frame, (box[0], box[1]),
-                              (box[0] + box[2], box[1] + box[3]), (0, 255, 0), 2)
-                cv2.putText(frame, f"{dominant_emotion}: {score:.2f}",
-                            (box[0], box[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        # 取第一个人脸的主导表情
+        emo_dict = emotions[0]["emotions"]
+        dominant = max(emo_dict, key=emo_dict.get)
+        return dominant
 
-        cv2.imshow("FER - Facial Expression Recognition", frame)
+    except Exception as e:
+        print(f"表情识别出错: {e}")
+        return "neutral"
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
 
-        time.sleep(0.03)  # 控制帧率
-
+# ========== 保留原函数（备用/本地测试）==========
+def get_current_emotion() -> str:
+    """
+    自己打开摄像头检测（仅用于本地测试，Gradio 不要用这个）
+    """
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
     cap.release()
-    cv2.destroyAllWindows()
+
+    if not ret:
+        return "neutral"
+
+    return process_image(frame)  # 复用上面的处理逻辑
 
 
-# 测试运行
+# ========== 测试代码 ==========
 if __name__ == "__main__":
-    detect_emotion_from_camera()
+    # 本地测试：自己打开摄像头
+    print("测试表情识别（按 Ctrl+C 退出）")
+    try:
+        while True:
+            emotion = get_current_emotion()
+            print(f"当前表情: {emotion}", end="\r")
+    except KeyboardInterrupt:
+        print("\n测试结束")
