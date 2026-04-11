@@ -1,4 +1,4 @@
-﻿.venv/
+.venv/
 .idea/
 __pycache__/
 *.pyc
@@ -7,3 +7,4 @@ __pycache__/
 .env*
 *.mp3
 logs/
+.agents/
