@@ -5,125 +5,102 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tts import speak_sync
 from utils import logger
-from openai.types.chat import (
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam
-)
+from vision import analyze_scene
 
 load_dotenv()
 
 # ================== 配置区 ==================
-MODEL = "qwen-turbo"
+MODEL = "qwen-max"  # 用户指定的大语言模型
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 API_KEY = os.getenv("LLM_API_KEY")
 
 client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-
 # ============================================
 
-def call_llm(emotion: str, user_text: str, prompt_file: str = "prompt.txt") -> dict:
+def call_llm_structured(semantic_context: str, user_text: str, prompt_file: str = "prompt.txt") -> dict:
     """
-    核心函数：接收表情 + 用户语音文本 → 返回 JSON 格式响应
-    返回格式: {"emotion": "...", "action": "...", "reply": "..."}
+    第二阶段：接收 VLM 语义描述 + 用户语音文本 → 返回结构化 JSON
     """
-    # 读取 Prompt
     try:
         with open(prompt_file, "r", encoding="utf-8") as f:
             system_prompt = f.read().strip()
     except FileNotFoundError:
         logger.error(f"Prompt 文件不存在: {prompt_file}")
-        system_prompt = "你是一个温柔的助手。"
+        system_prompt = "你是一个暖心的助手。请按 JSON 格式回复。"
 
     # 拼接上下文
     full_prompt = f"""
-当前用户表情：{emotion}
-用户说的话：{user_text}
+【视觉与环境感知】：
+{semantic_context}
 
-请严格按照系统提示词要求的 JSON 格式输出。
+【用户语音】：
+"{user_text}"
+
+请基于以上多模态信息，判断用户真实情感，并输出 JSON 动作指令。
 """
-
-    system_msg: ChatCompletionSystemMessageParam = {
-        "role": "system",
-        "content": system_prompt
-    }
-    user_msg: ChatCompletionUserMessageParam = {
-        "role": "user",
-        "content": full_prompt
-    }
 
     try:
         response = client.chat.completions.create(
             model=MODEL,
-            messages=[system_msg, user_msg],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": full_prompt}
+            ],
             temperature=0.7,
-            max_tokens=200
+            max_tokens=300
         )
         raw_reply = response.choices[0].message.content.strip()
         logger.debug(f"LLM 原始回复: {raw_reply}")
 
-        # 清理 markdown 代码块
-        if raw_reply.startswith("```json"):
-            raw_reply = raw_reply[7:]
-        if raw_reply.startswith("```"):
-            raw_reply = raw_reply[3:]
-        if raw_reply.endswith("```"):
-            raw_reply = raw_reply[:-3]
-        raw_reply = raw_reply.strip()
+        # 清理可能存在的 markdown 标记
+        if "```json" in raw_reply:
+            raw_reply = raw_reply.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_reply:
+            raw_reply = raw_reply.split("```")[1].split("```")[0].strip()
 
-        # 解析 JSON
         result = json.loads(raw_reply)
-
-        # 确保必要字段存在
-        if "emotion" not in result:
-            result["emotion"] = emotion
-        if "action" not in result:
-            result["action"] = "无动作"
-        if "reply" not in result:
-            result["reply"] = "嗯嗯，我在这里陪着你呢～"
-
         return result
 
-    except json.JSONDecodeError:
-        logger.warning(f"JSON 解析失败，原始回复: {raw_reply}")
-        return {
-            "emotion": emotion,
-            "action": "无动作",
-            "reply": "嗯嗯，我在这里陪着你呢～"
-        }
     except Exception as e:
-        logger.error(f"LLM 调用失败: {e}")
+        logger.error(f"决策层调用失败: {e}")
         return {
-            "emotion": emotion,
-            "action": "无动作",
-            "reply": "稍微等一下哦，我在整理思绪～"
+            "emotion": "感知模糊",
+            "action": "none",
+            "reply": "抱歉，我现在有点累，能再说一遍吗？",
+            "confidence": 0.0
         }
 
+def get_response(frame, voice_text: str, enable_tts: bool = True) -> dict:
+    """
+    V2.0 统一接口：端到端图文融合感知
+    1. 调用 VLM 获取语义描述
+    2. 调用 LLM 进行结构化决策
+    3. 可选执行 TTS
+    """
+    # 第一阶段：VLM 场景分析
+    logger.info("开始第一阶段：VLM 语义扫描...")
+    semantic_context = analyze_scene(frame, voice_text)
+    logger.info(f"VLM 结果: {semantic_context[:50]}...")
 
-def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True) -> dict:
-    """
-    统一接口：接收表情和语音文本，返回完整 JSON 响应
-    """
-    if not voice_text or voice_text.strip() == "":
-        result = {
-            "emotion": face_emotion,
-            "action": "无动作",
-            "reply": "我在听呢，你想说什么呀～"
-        }
-    else:
-        result = call_llm(face_emotion, voice_text)
+    # 第二阶段：LLM 结构化决策
+    logger.info("开始第二阶段：LLM 逻辑决策...")
+    result = call_llm_structured(semantic_context, voice_text)
+    
+    # 将 VLM 的原始描述也存入结果，方便 UI 调试显示
+    result["vlm_description"] = semantic_context
 
     reply_text = result.get("reply", "")
-    logger.info(f"表情: {face_emotion} | 动作: {result.get('action')} | 回复: {reply_text[:30]}...")
-
     if enable_tts and reply_text:
         speak_sync(reply_text)
 
     return result
 
-
 # 测试用
 if __name__ == "__main__":
-    print("测试 LLM + TTS 联动（JSON 模式）...")
-    result = get_response("happy", "今天天气真好", enable_tts=True)
-    print(f"返回结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
+    import cv2
+    print("测试 V2.0 两阶段推理...")
+    # 模拟一张空图像或读取本地测试图
+    test_frame = cv2.imread("test.jpg") # 需确保目录下有此文件或处理 None
+    res = get_response(test_frame, "我今天很开心")
+    print(f"最终决策: {json.dumps(res, ensure_ascii=False, indent=2)}")

@@ -24,22 +24,9 @@
 Web 框架      Gradio
 日志系统      Python logging
 
-📁 项目结构
-emotion_aware_system/
-├── app.py # Gradio 主界面入口
-├── vision.py # 面部表情识别模块
-├── audio.py # 语音识别模块
-├── llm_api.py # 大模型 API 调用
-├── tts.py # 语音合成模块
-├── utils.py # 日志工具
-├── debug_mode.py # Debug 模式预设
-├── prompt.txt # 大模型人设与输出格式约束
-├── requirements.txt # 依赖清单
-└── logs/ # 日志文件目录（自动生成）
-
 🚀 快速启动
-1. 克隆仓库
 ```bash
+1.克隆仓库
 git clone https://github.com/CDsanxiety/emotion_aware_system.git
 cd emotion_aware_system
 2. 创建虚拟环境（推荐）

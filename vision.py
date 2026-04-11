@@ -1,61 +1,78 @@
 # vision.py
 import cv2
-from fer.fer import FER
+import base64
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
 
-# 全局初始化一次，避免重复加载模型
-detector = FER(mtcnn=True)
+load_dotenv()
 
+# 初始化 OpenAI 客户端（兼容 DashScope）
+client = OpenAI(
+    api_key=os.getenv("LLM_API_KEY"),
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
 
-def process_image(frame) -> str:
+def encode_image(frame):
+    """将 numpy array 图像编码为 base64"""
+    if frame is None:
+        return None
+    # 调整大小以减少网络传输量 (最大 512)
+    height, width = frame.shape[:2]
+    if max(height, width) > 512:
+        scale = 512 / max(height, width)
+        frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
+    
+    _, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    return base64.b64encode(buffer).decode("utf-8")
+
+def analyze_scene(frame, voice_text: str = "") -> str:
     """
-    接收 Gradio 传入的图像帧（numpy array），返回主导表情
-    参数:
-        frame: Gradio 传来的图像（BGR 格式的 numpy array）
-    返回:
-        'happy', 'sad', 'angry', 'surprise', 'neutral', 'fear', 'disgust' 之一
+    使用 Qwen-VL-Max 分析场景内容
+    返回对场景、情绪、用户状态的自然语言描述
     """
     if frame is None:
-        return "neutral"
+        return "未捕捉到图像内容。"
 
     try:
-        # FER 直接分析传入的帧
-        emotions = detector.detect_emotions(frame)
+        base64_image = encode_image(frame)
+        if base64_image is None:
+            return "图像编码失败。"
+        
+        prompt = (
+            f"用户说：'{voice_text}'。请结合图中用户的面部神态、肢体语言、环境背景以及手中所持物品，"
+            "综合判断用户的真实情绪与处境。特别注意语言与神态之间是否存在矛盾点（如强颜欢笑）。"
+            "请给出一个详尽的情感语义描述。"
+        )
 
-        if not emotions:
-            return "neutral"
-
-        # 取第一个人脸的主导表情
-        emo_dict = emotions[0]["emotions"]
-        dominant = max(emo_dict, key=emo_dict.get)
-        return dominant
+        response = client.chat.completions.create(
+            model="qwen-vl-max",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        },
+                    ],
+                }
+            ],
+            max_tokens=300
+        )
+        
+        result = response.choices[0].message.content.strip()
+        return result
 
     except Exception as e:
-        print(f"表情识别出错: {e}")
-        return "neutral"
+        print(f"VLM 分析出错: {e}")
+        return "无法看清当前画面，提示用户检查网络或摄像头。"
 
-
-# ========== 保留原函数（备用/本地测试）==========
-def get_current_emotion() -> str:
-    """
-    自己打开摄像头检测（仅用于本地测试，Gradio 不要用这个）
-    """
-    cap = cv2.VideoCapture(0)
-    ret, frame = cap.read()
-    cap.release()
-
-    if not ret:
-        return "neutral"
-
-    return process_image(frame)  # 复用上面的处理逻辑
-
-
-# ========== 测试代码 ==========
-if __name__ == "__main__":
-    # 本地测试：自己打开摄像头
-    print("测试表情识别（按 Ctrl+C 退出）")
-    try:
-        while True:
-            emotion = get_current_emotion()
-            print(f"当前表情: {emotion}", end="\r")
-    except KeyboardInterrupt:
-        print("\n测试结束")
+# 为了保持向下兼容，保留 process_image 接口，但内部重定向
+def process_image(frame):
+    """向下兼容接口：旧版系统可能调用此函数获取表情词"""
+    # 在 2.0 中，如果强制需要一个词，我们可以让 VLM 简答，但此处保持通用性
+    return analyze_scene(frame, "你好")
