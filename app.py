@@ -25,12 +25,11 @@ def main_process(image, audio_input):
 
     # 调用两阶段推理接口 (VLM -> LLM)
     # 此时图像直接传给 get_response，内部会调用 analyze_scene
-    result = get_response(image, voice_text, enable_tts=True)
+    result, audio_path = get_response(image, voice_text, enable_tts=True)
 
     # 发布指令到 ROS
     ros_manager.publish_action(result)
 
-    audio_path = "response.mp3"
     return result, audio_path
 
 def debug_process(emotion, text):
@@ -42,12 +41,11 @@ def debug_process(emotion, text):
     cv2.putText(dummy_frame, f"Emotion: {emotion}", (50, 250), 
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     
-    result = get_response(dummy_frame, text, enable_tts=True)
+    result, audio_path = get_response(dummy_frame, text, enable_tts=True)
     
     # 同样发布到 ROS
     ros_manager.publish_action(result)
 
-    audio_path = "response.mp3"
     return result, audio_path
 
 def check_ros_status():
@@ -96,7 +94,7 @@ with gr.Blocks(title="微影听镜 V2.0 - 情感智能交互系统") as demo:
             audio_input = gr.Audio(
                 label="🎤 语音输入 (ASR)",
                 sources=["microphone"],
-                type="numpy"
+                type="filepath"
             )
             run_btn = gr.Button("🚀 开启多模态协同感知", variant="primary", size="lg")
 

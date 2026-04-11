@@ -27,20 +27,14 @@ async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]
     if not text or text.strip() == "":
         return None
     
-    output_file = "response.mp3"
+    import uuid
+    output_file = f"response_{uuid.uuid4().hex[:8]}.mp3"
     
     try:
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(output_file)
         
-        system = platform.system()
-        if system == "Windows":
-            os.system(f"start {output_file}")
-        elif system == "Darwin":  # Mac
-            os.system(f"afplay {output_file}")
-        else:  # Linux
-            os.system(f"mpg123 {output_file}")
-        
+        # 音频全权交由 Gradio Web 组件播放，彻底移除物理级播放
         return output_file
     except Exception as e:
         print(f"TTS 出错: {e}")

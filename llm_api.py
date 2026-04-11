@@ -91,10 +91,11 @@ def get_response(frame, voice_text: str, enable_tts: bool = True) -> dict:
     result["vlm_description"] = semantic_context
 
     reply_text = result.get("reply", "")
+    audio_path = None
     if enable_tts and reply_text:
-        speak_sync(reply_text)
+        audio_path = speak_sync(reply_text)
 
-    return result
+    return result, audio_path
 
 # 测试用
 if __name__ == "__main__":
@@ -102,5 +103,5 @@ if __name__ == "__main__":
     print("测试 V2.0 两阶段推理...")
     # 模拟一张空图像或读取本地测试图
     test_frame = cv2.imread("test.jpg") # 需确保目录下有此文件或处理 None
-    res = get_response(test_frame, "我今天很开心")
+    res, audio = get_response(test_frame, "我今天很开心")
     print(f"最终决策: {json.dumps(res, ensure_ascii=False, indent=2)}")
