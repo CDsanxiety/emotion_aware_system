@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .venv/
 .idea/
 __pycache__/
@@ -8,3 +9,14 @@ __pycache__/
 *.mp3
 logs/
 .agents/
+=======
+﻿.venv/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.env*
+*.mp3
+logs/
+>>>>>>> 483d2714ed6e5219c69a9876fb45ccb0e51adfc6

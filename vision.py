@@ -1,78 +1,96 @@
 # vision.py
-import cv2
+"""
+摄像头画面 → 阿里云百炼 qwen-vl-max 场景理解（含杂乱室内、多物体、非人物）；
+失败时用 OpenCV 启发式 + 可选 FER，保证 description 非空、便于 LLM 做社交共情。
+"""
 import base64
 import os
-from openai import OpenAI
+from typing import Any, Dict, List, Optional
+
+import cv2
 from dotenv import load_dotenv
+from fer.fer import FER
+from openai import OpenAI
+
+from utils import logger
 
 load_dotenv()
 
-# 初始化 OpenAI 客户端（兼容 DashScope）
-client = OpenAI(
-    api_key=os.getenv("LLM_API_KEY"),
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-)
+    client = _get_client()
+    if not client:
+        return ""
+    resp = client.chat.completions.create(
+        model=VL_MODEL,
+        messages=[
+            {"role": "system", "content": VL_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                    {"type": "text", "text": user_prompt},
+                ],
+            },
+        ],
+        temperature=0.25,
+        max_tokens=512,
+        timeout=VL_TIMEOUT_SEC,
+    )
+    return (resp.choices[0].message.content or "").strip()
 
-def encode_image(frame):
-    """将 numpy array 图像编码为 base64"""
-    if frame is None:
-        return None
-    # 调整大小以减少网络传输量 (最大 512)
-    height, width = frame.shape[:2]
-    if max(height, width) > 512:
-        scale = 512 / max(height, width)
-        frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
-    
-    _, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-    return base64.b64encode(buffer).decode("utf-8")
 
-def analyze_scene(frame, voice_text: str = "") -> str:
+def process_image(frame) -> Dict[str, Any]:
     """
-    使用 Qwen-VL-Max 分析场景内容
-    返回对场景、情绪、用户状态的自然语言描述
+    输入：Gradio / OpenCV 图像帧（numpy BGR）。
+    输出：success / description / is_fallback；description 始终非空以利 LLM 联动。
     """
     if frame is None:
-        return "未捕捉到图像内容。"
+        return _make_result(False, "未获取到画面，无法描述场景。", True)
+
+    data_url = _frame_to_data_url(frame)
+    if not data_url:
+        return _make_result(False, _fallback_visual_description(frame), True)
+
+    client = _get_client()
+    if client is None:
+        logger.warning("未配置 LLM_API_KEY，视觉降级为本地启发式 + FER")
+        return _make_result(False, _fallback_visual_description(frame), True)
 
     try:
-        base64_image = encode_image(frame)
-        if base64_image is None:
-            return "图像编码失败。"
-        
-        prompt = (
-            f"用户说：'{voice_text}'。请结合图中用户的面部神态、肢体语言、环境背景以及手中所持物品，"
-            "综合判断用户的真实情绪与处境。特别注意语言与神态之间是否存在矛盾点（如强颜欢笑）。"
-            "请给出一个详尽的情感语义描述。"
-        )
-
-        response = client.chat.completions.create(
-            model="qwen-vl-max",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        },
-                    ],
-                }
-            ],
-            max_tokens=300
-        )
-        
-        result = response.choices[0].message.content.strip()
-        return result
-
+        raw = _call_qwen_vl(data_url, VL_USER_PROMPT)
+        if not raw:
+            raw = _call_qwen_vl(data_url, VL_USER_PROMPT_RETRY)
+        if raw:
+            return _make_result(True, raw, False)
+        logger.warning("qwen-vl-plus 返回空内容，降级本地 + 可选 FER")
+        return _make_result(False, _fallback_visual_description(frame), True)
     except Exception as e:
-        print(f"VLM 分析出错: {e}")
-        return "无法看清当前画面，提示用户检查网络或摄像头。"
+        logger.warning(f"qwen-vl-plus 不可用，降级: {e}")
+        return _make_result(False, _fallback_visual_description(frame), True)
 
-# 为了保持向下兼容，保留 process_image 接口，但内部重定向
-def process_image(frame):
-    """向下兼容接口：旧版系统可能调用此函数获取表情词"""
-    # 在 2.0 中，如果强制需要一个词，我们可以让 VLM 简答，但此处保持通用性
-    return analyze_scene(frame, "你好")
+
+def no_input_vision() -> Dict[str, Any]:
+    return _make_result(False, "未获取到画面。", True)
+
+
+def get_current_emotion() -> Dict[str, Any]:
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return _make_result(False, "无法读取摄像头画面。", True)
+    return process_image(frame)
+
+
+if __name__ == "__main__":
+    print("测试视觉：qwen-vl-plus（Ctrl+C 退出）")
+    try:
+        while True:
+            out = get_current_emotion()
+            print(
+                f"[success={out['success']} fallback={out['is_fallback']}] "
+                f"{out['description'][:120]}...",
+                end="\r",
+            )
+    except KeyboardInterrupt:
+        print("\n结束")
+>>>>>>> 483d2714ed6e5219c69a9876fb45ccb0e51adfc6

@@ -14,45 +14,61 @@
 - 🔊 语音合成：Edge-TTS，支持多音色（默认晓晓-活泼女声）
 - 🖥️ Web 交互界面：Gradio 构建，支持摄像头拍照、麦克风录音
 - 🔧 Debug 模式：手动输入情绪和文字，绕过硬件直接测试
+
 🛠️ 技术栈
 
-模块          技术
-表情识别      FER (Face Expression Recognition) + OpenCV
-语音识别      SpeechRecognition + Google STT
-大语言模型    阿里云百炼 Qwen-Turbo / DeepSeek
-语音合成      Edge-TTS
-Web 框架      Gradio
-日志系统      Python logging
+| 模块 | 技术 |
+| :--- | :--- |
+| 表情识别 | FER (Face Expression Recognition) + OpenCV |
+| 语音识别 | SpeechRecognition + Google STT |
+| 大语言模型 | 阿里云百炼 Qwen-Turbo / DeepSeek |
+| 语音合成 | Edge-TTS |
+| Web 框架 | Gradio |
+| 日志系统 | Python logging |
+
+📁 项目结构
+emotion_aware_system/
+├── app.py # Gradio 主界面入口
+├── vision.py # 面部表情识别模块
+├── audio.py # 语音识别模块
+├── llm_api.py # 大模型 API 调用
+├── tts.py # 语音合成模块
+├── utils.py # 日志工具
+├── debug_mode.py # Debug 模式预设
+├── prompt.txt # 大模型人设与输出格式约束
+├── requirements.txt # 依赖清单
+└── logs/ # 日志文件目录（自动生成）
 
 🚀 快速启动
+1. 克隆仓库
 ```bash
-1.克隆仓库
 git clone https://github.com/CDsanxiety/emotion_aware_system.git
 cd emotion_aware_system
+```
 2. 创建虚拟环境（推荐）
-bash
+```bash
 python -m venv .venv
-
 # Windows
 .\.venv\Scripts\activate
-
 # Mac/Linux
 source .venv/bin/activate
+```
 3. 安装依赖
-bash
+```bash
 pip install -r requirements.txt
-⚠️ 如果 PyAudio 安装失败，Windows 用户可使用 pip install pipwin && pipwin install pyaudio
+```
+> ⚠️ 如果 PyAudio 安装失败，Windows 用户可使用 `pip install pipwin && pipwin install pyaudio`
 
 4. 配置 API 密钥
-在项目根目录创建 .env 文件，写入：
-
-text
+在项目根目录创建 `.env` 文件，写入：
+```text
 LLM_API_KEY=你的阿里云百炼API密钥
-如需切换模型，修改 llm_api.py 中的 MODEL 和 BASE_URL
+```
+> 如需切换模型，修改 `llm_api.py` 中的 `MODEL` 和 `BASE_URL`
 
 5. 运行项目
-bash
+```bash
 python app.py
+```
 6. 访问 Web 界面
-启动成功后，浏览器打开：http://127.0.0.1:7860
-
+启动成功后，浏览器打开：`http://127.0.0.1:7860`
