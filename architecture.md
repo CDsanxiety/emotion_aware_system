@@ -77,32 +77,4 @@ graph TD
     LLM -.->|"系统提示词与上下文"| Aliyun
     Audio -.->|"加密音频碎块"| Google
     TTS -.->|"SSML 合成请求"| EdgeCloud
-    UI_Txt -- "纯文本输入 (Text)" --> Debug_Controller
-    
-    %% 2. Controller -> Perception
-    Controller -- "分发图像给视觉模块" --> Vision
-    Controller -- "分发音频文件给听觉模块" --> Audio
-    
-    %% 3. Perception -> Cognition
-    Vision -- "提取的主导情绪<br>(e.g. happy/sad)" --> LLM
-    Audio -- "转写出的中文意图<br>(String)" --> LLM
-    Debug_Controller -- "绕过硬件的<br>情绪+文本" --> LLM
-    
-    %% 4. Cognition -> Action & Controller
-    LLM -- "调用语音引擎<br>传入回复话术" --> TTS
-    LLM -- "回传结果:<br>(JSON Dict, 动态音频路径)" --> Controller
-    
-    %% 5. Action -> Controller -> Frontend
-    TTS -.->|"写入 UUID 临时文件<br>(e.g. response_xx.mp3)"| Controller
-    Controller -- "前端渲染<br>JSON 数据看板" --> UI_Info
-    Controller -- "交给 Web 播放组件<br>(纯净无回音)" --> UI_Video
-    
-    Debug_Controller -.->|"更新数据"| UI_Info
-    Debug_Controller -.->|"自动播放"| UI_Video
-
-    %% 6. API 通信
-    LLM -.->|"系统提示词与上下文"| Aliyun
-    Audio -.->|"加密音频碎块"| Google
-    TTS -.->|"SSML 合成请求"| EdgeCloud
 ```
->>>>>>> 483d2714ed6e5219c69a9876fb45ccb0e51adfc6
