@@ -1,139 +1,142 @@
 # app.py
-import os
+"""
+微影听镜 V2.0 - 实机集成重塑版
+核心特性：并行感知、闭环反馈、延时监控、硬件状态同步。
+"""
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-import cv2
 import gradio as gr
-import numpy as np
-from dotenv import load_dotenv
 
-import ros_client  # [Local] ROS 硬件支持
+# 这里的 import 顺序按系统层级排列
+from config import ROS_BRIDGE_URI
 from audio import transcribe_file
 from llm_api import clear_memory, get_response
+from ros_client import global_ros_manager
 from utils import logger, setup_logger
 from vision import process_image
 
-# 初始化
-load_dotenv()
+# 初始化日志与硬件连接
 setup_logger()
+global_ros_manager.connect()
 
-# [Local] 初始化 ROS 管理器
-ros_manager = ros_client.ROSManager()
-
-# ================== 核心逻辑 (并发感知 + 逻辑决策 + 硬件下发) ==================
+# ================== 核心集成流水线 (Integrated Pipeline) ==================
 
 def main_process(frame, audio_path):
     """
-    1. 并发感知：Vision (VLM) + STT (Speech) 并行处理，减少等待。
-    2. 逻辑决策：LLM 融合理解并生成嵌套 JSON。
-    3. 硬件下发：若有 ROS 指令，实时下发到树莓派。
+    竞赛级全链路：感知并行化 -> 决策结构化 -> 执行闭环化。
     """
     if frame is None and not audio_path:
-        return None, "请提供摄像头画面或语音输入。", None
+        return None, "等待输入中...", "（无画面）", {}
 
-    start_time = time.time()
-    logger.info("--- 开始新一轮集成感知决策流 ---")
+    overall_start = time.time()
+    logger.info("--- [Pipeline] 开启新一轮感知脉冲 ---")
 
-    # [并发阶段 1] 视觉与听觉并行
-    vision_desc = "（无画面）"
+    # [1. 并行感知阶段] - 减少阻塞，利用多核性能
+    perception_start = time.time()
+    vision_desc = "（未采集）"
     voice_text = ""
-    face_emotion = "neutral"
-
+    
     with ThreadPoolExecutor(max_workers=2) as executor:
-        # 并行处理图像与语音
         f_vision = executor.submit(process_image, frame)
         f_stt = executor.submit(transcribe_file, audio_path)
 
-        # 获取结果
-        v_res = f_vision.result()
-        vision_desc = v_res.get("description", "（描述生成失败）")
+        res_v = f_vision.result()
+        vision_desc = res_v.get("description", "视觉链路异常")
+        is_vision_fallback = res_v.get("is_fallback", False)
+        
         voice_text = f_stt.result()
 
-    logger.info(f"感知耗时: {time.time() - start_time:.2f}s")
+    perception_latency = time.time() - perception_start
+
+    # [2. 认知决策阶段] - 结合当前硬件状态进行决策
+    # 获取当前的硬件闭环反馈（如有）
+    hardware_status = global_ros_manager.get_status()
     
-    # [逻辑阶段 2] LLM 聚合理解
-    # get_response 内部处理了 Memory 与感知融合
+    # 将感知结果送入 LLM
+    # 注意：此处 face_emotion 暂时占位，主要依赖 VLM 的 description
     res, response_audio = get_response(
-        face_emotion, 
-        voice_text, 
+        face_emotion="neutral", 
+        voice_text=voice_text, 
         enable_tts=True, 
         vision_desc=vision_desc
     )
 
-    # [集成阶段 3] ROS 硬件执行
-    # 将决策结果发布到 ROS 话题，由树莓派订阅并执行（转头、亮灯等）
-    if ros_manager:
-        try:
-            ros_manager.publish_action(res)
-        except Exception as e:
-            logger.warning(f"ROS 动作下发失败（可能未连接）: {e}")
+    # [3. 硬件下发阶段] - 异步执行，不阻塞 UI 响应
+    global_ros_manager.publish_action(res)
 
-    logger.info(f"全链路总耗时: {time.time() - start_time:.2f}s")
+    total_latency = time.time() - overall_start
+    
+    # 构造性能监控数据
+    latency_report = {
+        "感知层延时 (STT+VLM)": f"{perception_latency:.2f}s",
+        "端到端总延时 (E2E)": f"{total_latency:.2f}s",
+        "视觉模式": "端侧兜底" if is_vision_fallback else "云端 VLM",
+        "硬件反馈": hardware_status if hardware_status else "等待同步..."
+    }
 
-    # 返回给 Gradio 展示：音频, JSON 状态, VLM 描述
-    return response_audio, res, vision_desc
+    logger.info(f"脉冲完成: {total_latency:.2f}s | 状态: {res.get('emotion', '未知')}")
+
+    return response_audio, res, vision_desc, latency_report
 
 
 def debug_process(face_input, text_input):
-    """旁路调试：手动输入模拟感知结果。"""
+    """调试通道：绕过感知层直达决策。"""
     res, audio = get_response(face_input, text_input, enable_tts=True, vision_desc="（调试模式：手动输入）")
-    
-    if ros_manager:
-        ros_manager.publish_action(res)
-        
+    global_ros_manager.publish_action(res)
     return audio, res
 
 
-# ================== Gradio UI 设计 (Premium 风格) ==================
+# ================== 竞赛级交互界面 (National Prize UI) ==================
 
-with gr.Blocks(theme=gr.themes.Soft(), title="微影听镜 V2.0 - 实机集成版") as demo:
-    gr.Markdown("""
-    # 🤖 暖暖智能伴侣机器人 (Nuannuan Robot V2.0)
-    **集成状态**：已开启端云协同感知 | **硬件连接**：ROSBridge 待命
+with gr.Blocks(theme=gr.themes.Soft(), title="Nuannuan V2.0 Pro") as demo:
+    gr.Markdown(f"""
+    # 🤖 暖暖 (Nuannuan) - 情感感知伴侣机器人
+    > **[端云协同 V2.0]**：当前已连接至 `{ROS_BRIDGE_URI}` | 并行感知引擎已就绪
     """)
     
-    with gr.Tab("📱 实时交互模式"):
-        with gr.Row():
-            with gr.Column(scale=1):
-                input_cam = gr.Image(sources=["webcam"], label="实时预览 (VLM 采集)", type="numpy")
-                input_mic = gr.Audio(sources=["microphone"], type="filepath", label="语音对话 (STT)")
-                btn_run = gr.Button("🚀 开启同步交互", variant="primary")
-                btn_clear = gr.Button("🧹 清空机器人记忆")
+    with gr.Row():
+        with gr.Column(scale=4):
+            with gr.Tab("📱 实时交互"):
+                with gr.Row():
+                    input_cam = gr.Image(sources=["webcam"], label="视觉采集 (VLM)", type="numpy")
+                    input_mic = gr.Audio(sources=["microphone"], type="filepath", label="语言意图 (STT)")
+                
+                with gr.Row():
+                    btn_run = gr.Button("🚀 立即唤醒", variant="primary")
+                    btn_clear = gr.Button("🧹 重置记忆", variant="secondary")
+                
+                output_audio = gr.Audio(label="暖暖的回复 (TTS)", autoplay=True)
+                output_vlm = gr.Textbox(label="🔍 视觉感知详情", lines=3)
+
+        with gr.Column(scale=3):
+            gr.Markdown("### 🧠 核心决策链路")
+            output_json = gr.JSON(label="Pipeline (JSON)")
             
-            with gr.Column(scale=1):
-                output_audio = gr.Audio(label="暖暖的回复", autoplay=True)
-                output_vlm = gr.Textbox(label="🔍 视觉感知详情 (VLM Description)")
-                output_json = gr.JSON(label="🧠 核心决策链路 (Perception-Decision-Execution)")
+            gr.Markdown("### 📊 工程性能与硬件反馈")
+            output_latency = gr.JSON(label="Performance Monitor")
 
-        btn_run.click(
-            main_process, 
-            inputs=[input_cam, input_mic], 
-            outputs=[output_audio, output_json, output_vlm]
-        )
-        btn_clear.click(clear_memory, outputs=[output_json])
-
-    with gr.Tab("🔧 专业调试工具"):
+    with gr.Accordion("🔧 高级调试与后门 (Competition Recovery)", open=False):
         with gr.Row():
-            db_face = gr.Dropdown(
-                ["happy", "sad", "angry", "surprise", "neutral", "fear", "disgust"], 
-                label="模拟表情标签", value="neutral"
-            )
-            db_text = gr.Textbox(label="模拟语音输入", placeholder="例如：我今天过得不太好...")
-            db_btn = gr.Button("发送测试流")
-        
-        db_audio = gr.Audio(label="调试音频回复")
-        db_json = gr.JSON(label="调试决策结果")
-        
+            db_face = gr.Dropdown(["happy", "sad", "neutral", "fear"], label="情绪占位", value="neutral")
+            db_text = gr.Textbox(label="模拟文本输入")
+            db_btn = gr.Button("发送模拟流")
+        db_audio = gr.Audio(label="调试音频")
+        db_json = gr.JSON(label="调试决策")
         db_btn.click(debug_process, inputs=[db_face, db_text], outputs=[db_audio, db_json])
+
+    # 事件绑定
+    btn_run.click(
+        main_process, 
+        inputs=[input_cam, input_mic], 
+        outputs=[output_audio, output_json, output_vlm, output_latency]
+    )
+    btn_clear.click(clear_memory, outputs=[output_json])
 
     gr.Markdown("""
     ---
-    *注：本系统正处于实机集成阶段。所有动作指令将通过 ROSBridge 同步发送至树莓派控制节点。*
+    *注：本系统遵循“端云协同”原则，优先在边缘侧进行风险预审，关键决策由云端大模型完成。*
     """)
 
 if __name__ == "__main__":
-    # 启动前确认 Memory 已清空
-    clear_memory()
     demo.launch(server_name="0.0.0.0", server_port=7860, share=False)

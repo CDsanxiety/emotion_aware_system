@@ -5,5 +5,5 @@ opencv-python
 python-dotenv
 edge-tts
 numpy
-speech_recognition
+SpeechRecognition
 pyaudio
