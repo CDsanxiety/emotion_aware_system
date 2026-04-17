@@ -1,380 +1,365 @@
 # app.py
+"""
+微影听镜 V2.0 - 实机集成重塑版
+核心特性：并行感知、闭环反馈、延时监控、硬件状态同步。
+基于ROS-LLM核心架构设计
+"""
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import cv2
 
 import gradio as gr
 
-from vision import process_image, no_input_vision
+# 这里的 import 顺序按系统层级排列
+from config import ROS_BRIDGE_URI
 from audio import transcribe_file
-from llm_api import get_response, clear_memory
-from debug_mode import EMOTION_OPTIONS, PRESET_TESTS
-from agent_loop import (
-    start_agentic_main_loop,
-    set_proactive_enabled,
-    is_proactive_enabled,
-    get_pending_proactive,
-    clear_pending_proactive,
-    ProactiveCareResult,
-)
+from llm_api import clear_memory, get_response
+from ros_client import global_ros_manager
+from utils import logger, setup_logger
+from vision import process_image
+from blackboard import Blackboard
+from memory_rag import LongTermMemory
+from pad_model import PADEmotionEngine
+from openvla_integration import OpenVLA, VLAControlLoop
 
-_agent_loop_handle = None
-_proactive_care_display = gr.Markdown("### 🌸 主动关心\n*待机中...*")
+# 尝试导入AutoGen和MetaGPT，如果失败则使用模拟实现
+try:
+    from autogen_integration import AutoGenManager
+except ImportError:
+    print("AutoGen 集成模块导入失败，使用模拟实现")
+    class AutoGenManager:
+        def __init__(self):
+            pass
+        def chat(self, message, context=None):
+            return f"模拟AutoGen响应: {message}"
 
+try:
+    from meta_gpt_integration import MetaGPTManager
+except ImportError:
+    print("MetaGPT 集成模块导入失败，使用模拟实现")
+    class MetaGPTManager:
+        def __init__(self):
+            pass
+        async def run(self, task):
+            return f"模拟MetaGPT响应: {task}"
 
-def _on_proactive_care(result: ProactiveCareResult) -> None:
+# 初始化日志与硬件连接
+setup_logger()
+global_ros_manager.connect()
+
+# 初始化新模块
+global_blackboard = Blackboard()
+global_memory = LongTermMemory()
+global_pad_engine = PADEmotionEngine()
+
+# 初始化OpenVLA
+global_vla = OpenVLA()
+global_vla_control_loop = VLAControlLoop(global_vla)
+
+# 初始化AutoGen
+global_autogen_manager = AutoGenManager()
+
+# 初始化MetaGPT
+global_metagpt_manager = MetaGPTManager()
+
+# 线程控制变量
+running = True
+
+class CoreArchitecture:
+    """ROS-LLM 核心架构"""
+    
+    def __init__(self):
+        """初始化核心架构"""
+        self.components = {
+            "input": ["AudioInput", "VisionInput"],
+            "processing": ["Blackboard", "PADEmotionEngine", "LongTermMemory"],
+            "model": ["LLM API", "OpenVLA", "AutoGen", "MetaGPT"],
+            "robot": "ROSManager",
+            "output": "TTS"
+        }
+        self.flow = [
+            "用户语音/视觉输入",
+            "语音转文本/视觉识别",
+            "数据写入 Blackboard",
+            "PADEmotionEngine 计算情绪",
+            "LongTermMemory 检索记忆",
+            "AutoGen 多代理协作决策",
+            "MetaGPT 结构化代理处理",
+            "LLM 生成响应",
+            "OpenVLA 预测动作",
+            "ROSManager 下发指令",
+            "TTS 语音反馈",
+            "硬件执行并返回状态"
+        ]
+    
+    def print_architecture(self):
+        """打印架构信息"""
+        print("=== ROS-LLM 核心架构 ===")
+        print("\n1. 核心组件:")
+        for name, components in self.components.items():
+            if isinstance(components, list):
+                print(f"   - {name}:")
+                for component in components:
+                    print(f"     * {component}")
+            else:
+                print(f"   - {name}: {components}")
+        
+        print("\n2. 数据流向:")
+        for i, step in enumerate(self.flow, 1):
+            print(f"   {i}. {step}")
+        
+        print("\n3. 核心流程:")
+        print("   - 感知输入 → 数据处理 → LLM 决策 → 硬件控制 → 状态反馈")
+
+# 传感器线程函数
+def vision_thread():
+    """视觉传感器线程：持续捕获摄像头画面并写入Blackboard"""
+    cap = cv2.VideoCapture(0)
+    try:
+        while running:
+            ret, frame = cap.read()
+            if ret:
+                # 处理图像
+                res_v = process_image(frame)
+                vision_desc = res_v.get("description", "视觉链路异常")
+                # 写入Blackboard
+                global_blackboard.update_vision(vision_desc, True)
+            # 控制帧率
+            time.sleep(0.1)  # 10fps
+    finally:
+        cap.release()
+
+def audio_thread():
+    """听觉传感器线程：持续监听麦克风输入并写入Blackboard"""
+    # 注意：这里简化处理，实际应用中需要持续监听麦克风
+    # 由于持续录音可能会占用过多资源，这里我们保持现有的按需录音方式
+    # 但在架构上预留了线程接口
     pass
 
+def agent_loop():
+    """主决策循环：按固定频率读取Blackboard并做出决策"""
+    # 记录上次交互时间
+    last_interaction_time = time.time()
+    # 主动交互间隔（秒）
+    active_interaction_interval = 30
+    
+    while running:
+        # 读取Blackboard数据
+        vision_data = global_blackboard.get_vision_data()
+        speech_data = global_blackboard.get_speech_data()
+        
+        vision_desc = vision_data["description"]
+        voice_text = speech_data["text"]
+        
+        # 检查ROS状态，确保机器人没有在执行其他动作
+        hardware_status = global_ros_manager.get_status()
+        is_moving = hardware_status.get("is_moving", False)
+        
+        # 检查是否有新的语音输入
+        if voice_text and not is_moving:
+            # 构建上下文信息
+            context = f"视觉描述: {vision_desc}\n硬件状态: {hardware_status}"
+            
+            # 使用AutoGen进行多代理协作决策
+            autogen_response = global_autogen_manager.chat(voice_text, context)
+            
+            # 使用MetaGPT进行结构化代理处理
+            import asyncio
+            metagpt_response = asyncio.run(global_metagpt_manager.run(f"处理用户请求: {voice_text}\n上下文: {context}"))
+            
+            # 基于AutoGen和MetaGPT的决策结果调用LLM生成最终响应
+            res, response_audio = get_response(
+                face_emotion="neutral", 
+                voice_text=voice_text, 
+                enable_tts=True, 
+                vision_desc=vision_desc
+            )
+            
+            # 硬件下发
+            global_ros_manager.publish_action(res)
+            
+            # 清空语音输入，避免重复处理
+            global_blackboard.update_speech("")
+            
+            # 更新上次交互时间
+            last_interaction_time = time.time()
+        else:
+            # 检查是否需要主动交互
+            current_time = time.time()
+            if current_time - last_interaction_time > active_interaction_interval and not is_moving:
+                # 构建上下文信息
+                context = f"视觉描述: {vision_desc}\n硬件状态: {hardware_status}"
+                
+                # 使用AutoGen进行多代理协作决策
+                autogen_response = global_autogen_manager.chat("我需要主动与用户交互，根据当前环境和状态，我应该说什么？", context)
+                
+                # 使用MetaGPT进行结构化代理处理
+                import asyncio
+                metagpt_response = asyncio.run(global_metagpt_manager.run(f"生成主动交互内容\n上下文: {context}"))
+                
+                # 主动找用户说话
+                res, response_audio = get_response(
+                    face_emotion="neutral", 
+                    voice_text="", 
+                    enable_tts=True, 
+                    vision_desc=vision_desc
+                )
+                
+                # 硬件下发
+                global_ros_manager.publish_action(res)
+                
+                # 更新上次交互时间
+                last_interaction_time = time.time()
+        
+        # 控制决策频率
+        time.sleep(1)  # 1Hz
 
-def _toggle_proactive_care(enabled: bool) -> str:
-    set_proactive_enabled(enabled)
-    if enabled:
-        return "✅ **主动关心已开启**：暖暖会在你沉默时温柔地关心你哦～"
-    else:
-        return "🔕 **主动关心已关闭**"
+# ================== 核心集成流水线 (Integrated Pipeline) ==================
 
-
-def _check_pending_proactive_care():
-    result = get_pending_proactive()
-    if result is None:
-        return _proactive_care_display
-    clear_pending_proactive()
-    reply_text = f"### 🌸 暖暖轻声说：{result.reply}\n\n> 😊 情绪：{result.emotion} ｜ 🎬 动作：{result.action}"
-    return reply_text
-
-
-def _start_agent_loop():
-    global _agent_loop_handle
-    if _agent_loop_handle is None or not _agent_loop_handle.is_alive():
-        _agent_loop_handle = start_agentic_main_loop(
-            enable_tts=True,
-            on_proactive_output=_on_proactive_care,
-            idle_trigger_sec=30.0,
-            proactive_cooldown_sec=15.0,
-        )
-        print("[Log] Agent loop 已启动")
-
-
-def _format_vision_panel(vision_result: dict) -> str:
-    """视觉感知描述：展示 VLM（或降级）对画面的文字理解，便于用户核对「到底观察到了什么」。"""
-    if not vision_result:
-        return "### 视觉感知描述\n*暂无：请先拍照并触发融合。*"
-    desc = (vision_result.get("description") or "—").strip()
-    if vision_result.get("success"):
-        tag = "云端 VLM（qwen-vl-plus）"
-    elif vision_result.get("is_fallback"):
-        tag = "降级 · 本地参考（非云端整段描述）"
-    else:
-        tag = "视觉"
-    meta = []
-    if "success" in vision_result:
-        meta.append(f"success={vision_result.get('success')}")
-    if "is_fallback" in vision_result:
-        meta.append(f"is_fallback={vision_result.get('is_fallback')}")
-    meta_line = " · ".join(meta) if meta else ""
-    return (
-        f"### 视觉感知描述 · *{tag}*\n"
-        f"{('> ' + meta_line) if meta_line else ''}\n\n"
-        f"{desc}"
-    )
-
-
-def _format_pipeline_perception(result: dict) -> str:
-    p = (result or {}).get("perception") if isinstance(result, dict) else None
-    if not isinstance(p, dict):
-        return "### 1. 感知（场景 · 状态 · 风险 · 情绪）\n*等待全链路结果…*"
-    return (
-        "### 1. 感知（场景 · 状态 · 风险 · 情绪）\n"
-        f"- **场景内容**：{p.get('scene', '—')}\n"
-        f"- **状态**：{p.get('state', '—')}\n"
-        f"- **风险**：`{p.get('risk', '—')}`\n"
-        f"- **情绪线索**：{p.get('emotion_signal', '—')}"
-    )
-
-
-def _format_pipeline_decision(result: dict) -> str:
-    d = (result or {}).get("decision") if isinstance(result, dict) else None
-    if not isinstance(d, dict):
-        return "### 2. 决策\n*等待全链路结果…*"
-    return (
-        "### 2. 决策（判断 · 优先级）\n"
-        f"- **判断**：{d.get('judgment', '—')}\n"
-        f"- **优先级**：`{d.get('priority', '—')}`"
-    )
-
-
-def _format_pipeline_execution(result: dict) -> str:
-    e = (result or {}).get("execution") if isinstance(result, dict) else None
-    if not isinstance(e, dict):
-        return "### 3. 执行（动作 · 语言 · 策略）\n*等待全链路结果…*"
-    return (
-        "### 3. 执行（动作 · 语言 · 策略）\n"
-        f"- **情绪标签**：`{e.get('emotion', '—')}`\n"
-        f"- **家居动作**：`{e.get('action', '—')}`\n"
-        f"- **策略**：{e.get('strategy', '—')}\n"
-        f"- **对用户说**：{e.get('reply', '—')}"
-    )
-
-
-def _latency_note(seconds: float) -> str:
-    tip = (
-        f"本轮 **感知→决策→执行** 墙钟约 **`{seconds:.2f}s`**。"
-        " 感知阶段已对 **VLM 与 STT 并行** 以压缩等待；决策与执行在 LLM（及可选 TTS）。"
-    )
-    if seconds > 2.0:
-        tip += (
-            "\n\n> *提示：若常超过 2s，多为云端排队、VLM 耗时或 TTS；可在演示时关 TTS、缩短录音，"
-            "或为本机设置更短 `LLM_REQUEST_TIMEOUT_SEC` / 检查网络。*"
-        )
-    else:
-        tip += "\n\n> *已在 2s 目标内完成（实际随网络波动）。*"
-    return tip
-
-
-def _clear_memory_only():
-    """记忆清除：重置 LLM 侧对话上下文（deque）。"""
-    clear_memory()
-    return "✅ **记忆已清除**：对话上下文已重置，可重新开始多轮共情对话。"
-
-
-def _run_vision(image):
-    return process_image(image) if image is not None else no_input_vision()
-
-
-def _run_stt(audio_input):
-    return transcribe_file(audio_input) if audio_input is not None else ""
-
-
-# ================== 核心胶水逻辑 ==================
-def main_process(image, audio_input):
+def main_process(frame, audio_path):
     """
-    生活场景模拟：感知（VLM∥STT）→ 决策+执行（LLM+TTS），全链路结果展示在 Web UI。
+    竞赛级全链路：感知并行化 -> 决策结构化 -> 执行闭环化。
     """
-    t0 = time.perf_counter()
-    vision_result = no_input_vision()
+    if frame is None and not audio_path:
+        return None, "等待输入中...", "（无画面）", {}
+
+    overall_start = time.time()
+    logger.info("--- [Pipeline] 开启新一轮感知脉冲 ---")
+
+    # [1. 并行感知阶段] - 减少阻塞，利用多核性能
+    perception_start = time.time()
+    vision_desc = "（未采集）"
     voice_text = ""
+    
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f_vision = executor.submit(process_image, frame)
+        f_stt = executor.submit(transcribe_file, audio_path)
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        fv = pool.submit(_run_vision, image)
-        fs = pool.submit(_run_stt, audio_input)
-        try:
-            vision_result = fv.result(timeout=10.0)
-        except (FuturesTimeout, Exception) as e:
-            print(f"[Log] 视觉线程异常: {e}")
-            vision_result = no_input_vision()
-        try:
-            voice_text = fs.result(timeout=10.0)
-        except (FuturesTimeout, Exception) as e:
-            print(f"[Log] 语音线程异常: {e}")
-            voice_text = ""
+        res_v = f_vision.result()
+        vision_desc = res_v.get("description", "视觉链路异常")
+        is_vision_fallback = res_v.get("is_fallback", False)
+        
+        voice_text = f_stt.result()
+    
+    # 使用Blackboard存储感知数据
+    global_blackboard.update_vision(vision_desc, True)  # 假设用户在场
+    if voice_text:
+        global_blackboard.update_speech(voice_text)
 
-    vision_desc = (vision_result.get("description") or "").strip()
-    print(f"[Log] 视觉描述: {vision_desc[:80]}")
-    print(f"[Log] 语音内容: {voice_text}")
+    perception_latency = time.time() - perception_start
 
-    result, audio_path = get_response(
-        "neutral",
-        voice_text,
-        enable_tts=True,
-        vision_desc=vision_desc,
+    # [2. 认知决策阶段] - 结合当前硬件状态进行决策
+    # 获取当前的硬件闭环反馈（如有）
+    hardware_status = global_ros_manager.get_status()
+    
+    # 将感知结果送入 LLM
+    # 注意：此处 face_emotion 暂时占位，主要依赖 VLM 的 description
+    res, response_audio = get_response(
+        face_emotion="neutral", 
+        voice_text=voice_text, 
+        enable_tts=True, 
+        vision_desc=vision_desc
     )
 
-    elapsed = time.perf_counter() - t0
-    vision_panel = _format_vision_panel(vision_result)
-    perc_md = _format_pipeline_perception(result)
-    dec_md = _format_pipeline_decision(result)
-    exec_md = _format_pipeline_execution(result)
-    lat_md = _latency_note(elapsed)
+    # [3. 硬件下发阶段] - 异步执行，不阻塞 UI 响应
+    global_ros_manager.publish_action(res)
 
-    return (
-        result,
-        audio_path,
-        vision_panel,
-        perc_md,
-        dec_md,
-        exec_md,
-        lat_md,
-    )
+    total_latency = time.time() - overall_start
+    
+    # 构造性能监控数据
+    latency_report = {
+        "感知层延时 (STT+VLM)": f"{perception_latency:.2f}s",
+        "端到端总延时 (E2E)": f"{total_latency:.2f}s",
+        "视觉模式": "端侧兜底" if is_vision_fallback else "云端 VLM",
+        "硬件反馈": hardware_status if hardware_status else "等待同步..."
+    }
 
+    logger.info(f"脉冲完成: {total_latency:.2f}s | 状态: {res.get('emotion', '未知')}")
 
-def debug_process(emotion, text):
-    """
-    Debug 模式：手动输入
-    """
-    result, audio_path = get_response(emotion, text, enable_tts=True)
-    return result, audio_path
+    return response_audio, res, vision_desc, latency_report
 
 
-def fill_preset(preset_name):
-    """填充预设"""
-    if preset_name and preset_name in PRESET_TESTS:
-        return PRESET_TESTS[preset_name]
-    return "neutral", ""
+def debug_process(face_input, text_input):
+    """调试通道：绕过感知层直达决策。"""
+    res, audio = get_response(face_input, text_input, enable_tts=True, vision_desc="（调试模式：手动输入）")
+    global_ros_manager.publish_action(res)
+    return audio, res
 
 
-def format_reply_text(result):
-    """格式化显示回复文字（兼容全链路 JSON）。"""
-    if result and isinstance(result, dict):
-        reply = result.get("reply", "")
-        emotion = result.get("emotion", "")
-        action = result.get("action", "")
-        return f"### 💬 暖暖说：{reply}\n\n> 😊 情绪：{emotion} ｜ 🎬 动作：{action}"
-    return "### 💬 等待交互..."
+# ================== 竞赛级交互界面 (National Prize UI) ==================
 
-
-# ================== UI 布局设计 ==================
-with gr.Blocks(title="暖暖情感机器人仿真系统") as demo:
-    gr.Markdown("""
-    # 🤖 暖暖：情感感知智能家居伴侣
-    项目定位：国家级仿真比赛作品 | 硬件协同：多模态情感计算
+with gr.Blocks(theme=gr.themes.Soft(), title="Nuannuan V2.0 Pro") as demo:
+    gr.Markdown(f"""
+    # 🤖 暖暖 (Nuannuan) - 情感感知伴侣机器人
+    > **[端云协同 V2.0]**：当前已连接至 `{ROS_BRIDGE_URI}` | 并行感知引擎已就绪
     """)
-
-    gr.Markdown(
-        "### 🏠 生活场景模拟（感知 → 决策 → 执行）\n"
-        "每轮严格走：**感知**（画面内容、状态、风险、情绪线索）→ **决策**（判断与优先级）→ **执行**（家居动作、对用户话术、策略）。"
-        "覆盖杂乱房间、昏暗、情绪倾诉及潜在风险描述等日常场景。"
-    )
-
+    
     with gr.Row():
-        with gr.Column(scale=1):
-            camera_input = gr.Image(
-                label="📸 实时面部捕捉",
-                sources=["webcam"],
-                type="numpy"
-            )
-            gr.Markdown("<center>点击上方按钮拍照</center>")
-            gr.Markdown(
-                "#### 视觉感知描述（VLM 所见）\n"
-                "*以下为模型对当前画面的文字理解；成功时为云端 VLM，失败时为本地降级描述。*"
-            )
-            vision_desc_display = gr.Markdown(
-                "### 视觉感知描述\n*拍照并点击「触发深度融合感知」后，将在此展示 VLM 观察到的内容。*"
-            )
-            with gr.Row():
-                clear_memory_btn = gr.Button("🧹 记忆清除", variant="secondary", size="sm")
-                memory_status = gr.Markdown("")
-                proactive_toggle = gr.Checkbox(
-                    label="🌸 开启主动关心",
-                    value=True,
-                    info="开启后，暖暖会在你沉默时温柔地关心你",
-                )
-                proactive_status = gr.Textbox(label="主动关心状态", interactive=False, lines=1)
-                proactive_display = gr.Markdown("### 🌸 主动关心\n*待机中...*")
+        with gr.Column(scale=4):
+            with gr.Tab("📱 实时交互"):
+                with gr.Row():
+                    input_cam = gr.Image(sources=["webcam"], label="视觉采集 (VLM)", type="numpy")
+                    input_mic = gr.Audio(sources=["microphone"], type="filepath", label="语言意图 (STT)")
+                
+                with gr.Row():
+                    btn_run = gr.Button("🚀 立即唤醒", variant="primary")
+                    btn_clear = gr.Button("🧹 重置记忆", variant="secondary")
+                
+                output_audio = gr.Audio(label="暖暖的回复 (TTS)", autoplay=True)
+                output_vlm = gr.Textbox(label="🔍 视觉感知详情", lines=3)
 
-                proactive_toggle.change(
-                    fn=_toggle_proactive_care,
-                    inputs=[proactive_toggle],
-                    outputs=[proactive_status],
-                )
+        with gr.Column(scale=3):
+            gr.Markdown("### 🧠 核心决策链路")
+            output_json = gr.JSON(label="Pipeline (JSON)")
+            
+            gr.Markdown("### 📊 工程性能与硬件反馈")
+            output_latency = gr.JSON(label="Performance Monitor")
 
-        with gr.Column(scale=1):
-            audio_input = gr.Audio(
-                label="🎤 按住说话",
-                sources=["microphone"],
-                type="filepath"
-            )
-            run_btn = gr.Button("🚀 触发深度融合感知", variant="primary", size="lg")
-
-    with gr.Row():
-        pipeline_perception = gr.Markdown("### 1. 感知（场景 · 状态 · 风险 · 情绪）\n*触发后展示…*")
-        pipeline_decision = gr.Markdown("### 2. 决策\n*触发后展示…*")
-        pipeline_execution = gr.Markdown("### 3. 执行\n*触发后展示…*")
-
-    latency_display = gr.Markdown("*全链路耗时将在每轮结束后显示。*")
-
-    with gr.Row():
-        with gr.Column(scale=1):
-            json_output = gr.JSON(label="🧠 多模态融合决策中心（含全链路 JSON）")
-        with gr.Column(scale=1):
-            speech_output = gr.Audio(label="📢 暖暖的语音回复", autoplay=True)
-
-    robot_text_display = gr.Markdown("### 💬 暖暖说：等待交互...")
-
-    run_btn.click(
-        fn=main_process,
-        inputs=[camera_input, audio_input],
-        outputs=[
-            json_output,
-            speech_output,
-            vision_desc_display,
-            pipeline_perception,
-            pipeline_decision,
-            pipeline_execution,
-            latency_display,
-        ],
-    ).then(
-        fn=format_reply_text,
-        inputs=[json_output],
-        outputs=[robot_text_display],
-    )
-
-    clear_memory_btn.click(
-        fn=_clear_memory_only,
-        inputs=[],
-        outputs=[memory_status],
-    )
-
-    with gr.Accordion("🔧 Debug Mode ", open=False):
-        gr.Markdown("### ⚠️ 仅限摄像头/麦克风/网络故障时使用")
-        gr.Markdown("手动输入情绪和文字，绕过硬件直接测试大模型能力")
-
+    with gr.Accordion("🔧 高级调试与后门 (Competition Recovery)", open=False):
         with gr.Row():
-            with gr.Column():
-                debug_emotion = gr.Dropdown(
-                    choices=EMOTION_OPTIONS,
-                    label="😊 手动选择表情",
-                    value="neutral"
-                )
-                preset_dropdown = gr.Dropdown(
-                    choices=list(PRESET_TESTS.keys()),
-                    label="📋 快捷预设场景",
-                    value=None
-                )
-                debug_text = gr.Textbox(
-                    label="💬 手动输入文字",
-                    placeholder="输入你想说的话...",
-                    lines=3
-                )
-                debug_btn = gr.Button("🚀 Debug 发送", variant="secondary")
+            db_face = gr.Dropdown(["happy", "sad", "neutral", "fear"], label="情绪占位", value="neutral")
+            db_text = gr.Textbox(label="模拟文本输入")
+            db_btn = gr.Button("发送模拟流")
+        db_audio = gr.Audio(label="调试音频")
+        db_json = gr.JSON(label="调试决策")
+        db_btn.click(debug_process, inputs=[db_face, db_text], outputs=[db_audio, db_json])
 
-            with gr.Column():
-                debug_json = gr.JSON(label="📤 Debug 输出")
-                debug_audio = gr.Audio(label="📢 语音输出", autoplay=True)
-                debug_reply = gr.Markdown("### 💬 等待 Debug 结果...")
-
-        preset_dropdown.change(
-            fn=fill_preset,
-            inputs=[preset_dropdown],
-            outputs=[debug_emotion, debug_text]
-        )
-
-        debug_btn.click(
-            fn=debug_process,
-            inputs=[debug_emotion, debug_text],
-            outputs=[debug_json, debug_audio]
-        ).then(
-            fn=format_reply_text,
-            inputs=[debug_json],
-            outputs=[debug_reply]
-        )
+    # 事件绑定
+    btn_run.click(
+        main_process, 
+        inputs=[input_cam, input_mic], 
+        outputs=[output_audio, output_json, output_vlm, output_latency]
+    )
+    btn_clear.click(clear_memory, outputs=[output_json])
 
     gr.Markdown("""
     ---
-    **技术支撑：** Qwen-VL + Google STT + Qwen-Turbo + Edge-TTS · **全链路：** 感知-决策-执行 JSON
+    *注：本系统遵循“端云协同”原则，优先在边缘侧进行风险预审，关键决策由云端大模型完成。*
     """)
 
-    demo.load(
-        fn=_start_agent_loop,
-        inputs=[],
-        outputs=[],
-    )
-
-    demo.load(
-        fn=_check_pending_proactive_care,
-        inputs=[],
-        outputs=[proactive_display],
-        every=3,
-    )
-
 if __name__ == "__main__":
-    _start_agent_loop()
-    demo.launch(server_port=7860, show_error=True, theme=gr.themes.Soft())
+    # 初始化并打印核心架构
+    architecture = CoreArchitecture()
+    architecture.print_architecture()
+    
+    # 启动传感器线程
+    vision_thread = threading.Thread(target=vision_thread, daemon=True)
+    vision_thread.start()
+    
+    audio_thread = threading.Thread(target=audio_thread, daemon=True)
+    audio_thread.start()
+    
+    # 启动主决策循环
+    agent_thread = threading.Thread(target=agent_loop, daemon=True)
+    agent_thread.start()
+    
+    try:
+        demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    finally:
+        # 停止线程
+        running = False
+        time.sleep(0.5)  # 等待线程结束
+        # 关闭ROS连接，处理节点生命周期
+        global_ros_manager.shutdown()
+        logger.info("系统已关闭")

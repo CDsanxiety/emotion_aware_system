@@ -15,12 +15,13 @@ VOICES = {
     "xiaomo": "zh-CN-XiaomoNeural",          # 御姐
 }
 
-async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]:
+async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict = None) -> Optional[str]:
     """
     将文字转为语音并播放
     参数:
         text: 要播放的文字
         voice: 音色名称
+        tts_params: TTS参数，包含rate和pitch
     返回:
         生成的音频文件名，失败返回 None
     """
@@ -31,7 +32,17 @@ async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]
     output_file = f"response_{uuid.uuid4().hex[:8]}.mp3"
     
     try:
-        communicate = edge_tts.Communicate(text, voice)
+        # 构建参数字符串
+        rate = tts_params.get("rate", "0%") if tts_params else "0%"
+        pitch = tts_params.get("pitch", "0Hz") if tts_params else "0Hz"
+        
+        # 构建edge-tts的参数
+        communicate = edge_tts.Communicate(
+            text, 
+            voice,
+            rate=rate,
+            pitch=pitch
+        )
         await communicate.save(output_file)
         
         # 音频全权交由 Gradio Web 组件播放，彻底移除物理级播放
@@ -40,11 +51,11 @@ async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]
         print(f"TTS 出错: {e}")
         return None
 
-def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]:
+def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict = None) -> Optional[str]:
     """
     同步版本，方便在普通函数里调用
     """
-    return asyncio.run(speak(text, voice))
+    return asyncio.run(speak(text, voice, tts_params))
 
 # 测试
 if __name__ == "__main__":

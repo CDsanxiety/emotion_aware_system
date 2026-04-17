@@ -1,24 +1,16 @@
-# 核心功能
-fer==25.10.3
-SpeechRecognition==3.10.0
-opencv-python==4.13.0.92
-PyAudio==0.2.14
-
-# LLM API
-openai==2.30.0
-python-dotenv==1.2.2
-
-# TTS 语音
-edge-tts==7.2.8
-
-# Web 界面
-gradio==6.11.0
-
-# 基础依赖
-numpy==2.4.4
-
-# 具身智能集成
-pyautogen==0.2.0
-transformers==4.44.0
-pillow==10.4.0
-accelerate==0.32.0
+openai
+roslibpy
+gradio
+opencv-python
+python-dotenv
+edge-tts
+numpy
+SpeechRecognition
+pyaudio
+chromadb
+pyautogen
+meta-gpt
+cogvlm
+torch
+torchvision
+transformers

@@ -22,3 +22,26 @@ class Blackboard:
         with self.lock:
             self.last_speech_text = text
             self.last_speech_time = time.time()
+    
+    def get_vision_data(self):
+        with self.lock:
+            return {
+                "description": self.current_vision_desc,
+                "presence": self.user_presence,
+                "update_time": self.vision_update_time
+            }
+    
+    def get_speech_data(self):
+        with self.lock:
+            return {
+                "text": self.last_speech_text,
+                "update_time": self.last_speech_time
+            }
+    
+    def get_robot_status(self):
+        with self.lock:
+            return self.robot_status
+    
+    def set_robot_status(self, status):
+        with self.lock:
+            self.robot_status = status
