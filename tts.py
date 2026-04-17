@@ -5,7 +5,7 @@ import os
 import platform
 from typing import Optional
 
-# 可选音色（Product 同学可以挑选）
+# 可选音色
 VOICES = {
     "xiaoxiao": "zh-CN-XiaoxiaoNeural",      # 活泼女声（默认推荐）
     "yunxi": "zh-CN-YunxiNeural",            # 温柔男声
@@ -15,12 +15,13 @@ VOICES = {
     "xiaomo": "zh-CN-XiaomoNeural",          # 御姐
 }
 
-async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]:
+async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict = None) -> Optional[str]:
     """
-    将文字转为语音并播放
+    将文字转为语音并返回文件名。
     参数:
         text: 要播放的文字
         voice: 音色名称
+        tts_params: TTS 参数，包含 rate 和 pitch (例如 {"rate": "+10%", "pitch": "+0Hz"})
     返回:
         生成的音频文件名，失败返回 None
     """
@@ -31,23 +32,32 @@ async def speak(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]
     output_file = f"response_{uuid.uuid4().hex[:8]}.mp3"
     
     try:
-        communicate = edge_tts.Communicate(text, voice)
+        # 构建参数字符串
+        rate = tts_params.get("rate", "0%") if tts_params else "0%"
+        pitch = tts_params.get("pitch", "0Hz") if tts_params else "0Hz"
+        
+        communicate = edge_tts.Communicate(
+            text, 
+            voice,
+            rate=rate,
+            pitch=pitch
+        )
         await communicate.save(output_file)
         
-        # 音频全权交由 Gradio Web 组件播放，彻底移除物理级播放
+        # 音频全权交由 Gradio Web 组件播放
         return output_file
     except Exception as e:
         print(f"TTS 出错: {e}")
         return None
 
-def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> Optional[str]:
+def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict = None) -> Optional[str]:
     """
     同步版本，方便在普通函数里调用
     """
-    return asyncio.run(speak(text, voice))
+    return asyncio.run(speak(text, voice, tts_params))
 
 # 测试
 if __name__ == "__main__":
     print("测试 TTS...")
-    speak_sync("你好呀，我是暖暖，今天过得怎么样？")
-    print("播放完成")
+    speak_sync("你好呀，我是暖暖，今天过得怎么样？", tts_params={"rate": "+20%", "pitch": "+2Hz"})
+    print("生成完成")

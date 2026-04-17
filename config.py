@@ -35,3 +35,4 @@ TTS_TIMEOUT = 10
 ROS_BRIDGE_URI = os.getenv("ROS_BRIDGE_URI", "ws://localhost:9090")
 ROS_ACTION_TOPIC = "/nuannuan/action"
 ROS_STATUS_TOPIC = "/nuannuan/status"
+ROS_STATE_TOPIC = "/nuannuan/state"

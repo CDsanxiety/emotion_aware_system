@@ -1,0 +1,450 @@
+"""agent_loop.py
+后台"智能体循环"：不阻塞主程序，持续对接语音识别与视觉模块。
+与 app.py、llm_api.py、blackboard.py、memory_rag.py、pad_model.py 无缝对接。
+支持主动关心开关，不打断当前交互。
+"""
+from __future__ import annotations
+
+import threading
+import time
+import traceback
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional
+
+import cv2
+
+from audio import recognize_speech
+from llm_api import get_response
+from blackboard import Blackboard
+from ros_bridge import get_ros_bridge
+from vla_integration import create_vla_integration
+from autogen_integration import create_autogen_integration
+from cogvlm_integration import create_cogvlm_integration
+import vision
+
+
+@dataclass
+class ProactiveCareResult:
+    """主动关心结果：温柔插话不打断当前交互"""
+    reply: str
+    audio_path: Optional[str]
+    emotion: str
+    action: str
+
+
+def _infer_presence_from_vision(vision_desc: str) -> bool:
+    if not vision_desc:
+        return False
+    if "未检测到稳定人脸" in vision_desc:
+        return False
+    if "未能稳定检测到人脸" in vision_desc:
+        return False
+    return True
+
+
+def _default_idle_prompt(vision_desc: str) -> str:
+    vd = (vision_desc or "").strip()
+    if vd:
+        return f"我注意到画面与环境里有一些情绪线索：{vd}。你已经有一段时间没说话了，能不能用简短、温柔的话关心一下用户的状态？"
+    return "你已经有一段时间没说话了，能不能用简短、温柔的话关心一下用户的状态？"
+
+
+def _safe_update_blackboard(blackboard: Optional[Blackboard], updates: Dict[str, Any]) -> None:
+    if blackboard is None:
+        return
+    if not hasattr(blackboard, "lock"):
+        for k, v in updates.items():
+            setattr(blackboard, k, v)
+        return
+    with blackboard.lock:
+        for k, v in updates.items():
+            setattr(blackboard, k, v)
+
+
+class GlobalAgentState:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self):
+        self.proactive_enabled = True
+        self.is_interacting = False
+        self.pending_proactive: Optional[ProactiveCareResult] = None
+        self.last_proactive_time = 0.0
+        self.proactive_cooldown_sec = 15.0
+
+    @classmethod
+    def get_instance(cls) -> "GlobalAgentState":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def set_proactive_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self.proactive_enabled = enabled
+
+    def is_proactive_enabled(self) -> bool:
+        with self._lock:
+            return self.proactive_enabled
+
+    def set_interacting(self, interacting: bool) -> None:
+        with self._lock:
+            self.is_interacting = interacting
+
+    def is_interacting(self) -> bool:
+        with self._lock:
+            return self.is_interacting
+
+    def set_pending_proactive(self, result: Optional[ProactiveCareResult]) -> None:
+        with self._lock:
+            self.pending_proactive = result
+            if result:
+                self.last_proactive_time = time.time()
+
+    def get_pending_proactive(self) -> Optional[ProactiveCareResult]:
+        with self._lock:
+            return self.pending_proactive
+
+    def clear_pending_proactive(self) -> None:
+        with self._lock:
+            self.pending_proactive = None
+
+    def can_trigger_proactive(self) -> bool:
+        with self._lock:
+            if not self.proactive_enabled:
+                return False
+            if self.is_interacting:
+                return False
+            if time.time() - self.last_proactive_time < self.proactive_cooldown_sec:
+                return False
+            return True
+
+
+_global_state = GlobalAgentState.get_instance()
+
+
+def _agent_worker(
+    blackboard: Optional[Blackboard],
+    enable_tts: bool,
+    stt_timeout_sec: int,
+    stt_phrase_time_limit_sec: int,
+    vision_interval_sec: float,
+    idle_trigger_sec: float,
+    proactive_cooldown_sec: float,
+    idle_prompt_func: Optional[Callable[[str], str]],
+    on_proactive_output: Optional[Callable[[ProactiveCareResult], None]],
+    camera_index: int,
+    stop_event: threading.Event,
+) -> None:
+    cap = None
+    vision_desc = ""
+    presence = False
+    last_vision_time = 0.0
+    last_ros_publish_time = 0.0
+    ros_publish_interval = 2.0  # 每 2 秒发布一次状态
+    control_frequency = 10.0  # 控制频率 10Hz
+    control_interval = 1.0 / control_frequency
+
+    # 初始化 ROS 桥接
+    ros_bridge = get_ros_bridge()
+    # 初始化 VLA 集成
+    vla_integration = create_vla_integration(blackboard)
+    # 初始化 AutoGen 集成
+    autogen_integration = create_autogen_integration()
+    # 初始化 CogVLM 集成
+    cogvlm_integration = create_cogvlm_integration()
+
+    try:
+        cap = cv2.VideoCapture(camera_index)
+        if not cap.isOpened():
+            cap = None
+            _safe_update_blackboard(blackboard, {"current_vision_desc": ""})
+    except Exception:
+        cap = None
+
+    try:
+        while not stop_event.is_set():
+            start_time = time.time()
+            now = start_time
+
+            # 1. 获取当前观测
+            if cap is not None and (now - last_vision_time) >= vision_interval_sec:
+                last_vision_time = now
+                try:
+                    ok, frame = cap.read()
+                    if ok and frame is not None:
+                        # 2. 图像预处理与分析
+                        vr = vision.process_image(frame)
+                        vision_desc = (vr.get("description") or "").strip()
+                        presence = _infer_presence_from_vision(vision_desc)
+                        _safe_update_blackboard(
+                            blackboard,
+                            {
+                                "current_vision_desc": vision_desc,
+                                "user_presence": presence,
+                            },
+                        )
+                except Exception:
+                    pass
+
+            # 3. 语音观测
+            user_text = ""
+            try:
+                user_text = recognize_speech(
+                    timeout=stt_timeout_sec,
+                    phrase_time_limit=stt_phrase_time_limit_sec,
+                )
+            except Exception:
+                user_text = ""
+
+            if stop_event.is_set():
+                break
+
+            # 4. 基于观测预测动作（单步预测）
+            if user_text:
+                _global_state.set_interacting(True)
+                ts = time.time()
+                _safe_update_blackboard(
+                    blackboard,
+                    {
+                        "last_speech_time": ts,
+                        "last_speech_text": user_text,
+                        "user_presence": True,
+                    },
+                )
+
+                # 5. 执行动作（使用 AutoGen 和 CogVLM 集成）
+                # 使用 AutoGen 分析情感和规划动作
+                autogen_result = autogen_integration.analyze_emotion_and_plan_action(user_text, vision_desc)
+                emotion = autogen_result.get("emotion", "neutral")
+                action = autogen_result.get("action", "无动作")
+                
+                # 如果有图像，使用 CogVLM 进行多模态分析
+                if cap is not None:
+                    try:
+                        ok, frame = cap.read()
+                        if ok and frame is not None:
+                            from PIL import Image
+                            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                            cogvlm_result = cogvlm_integration.process_multimodal(image, user_text)
+                            if cogvlm_result.get("success"):
+                                emotion = cogvlm_result.get("emotion", emotion)
+                                action = cogvlm_result.get("action", action)
+                    except Exception:
+                        pass
+                
+                # 构建 VLA 观测
+                from vla_integration import VLAObservation
+                vla_obs = VLAObservation(
+                    vision_desc=vision_desc,
+                    audio_text=user_text,
+                    timestamp=ts
+                )
+                # 预测动作
+                prediction = vla_integration.predict_action(vla_obs, instruction="响应用户需求")
+                # 执行动作
+                execution_result = vla_integration.execute_action(prediction)
+                
+                res, audio_path = get_response(
+                    emotion,
+                    user_text,
+                    enable_tts=enable_tts,
+                    vision_desc=vision_desc,
+                )
+                _safe_update_blackboard(
+                    blackboard,
+                    {
+                        "last_robot_result": res,
+                        "last_robot_audio_path": audio_path,
+                    },
+                )
+
+                _global_state.set_interacting(False)
+
+            else:
+                last_speech_time = 0.0
+                if blackboard is not None:
+                    last_speech_time = getattr(blackboard, "last_speech_time", 0.0) or 0.0
+                presence_now = presence
+                if blackboard is not None:
+                    presence_now = getattr(blackboard, "user_presence", presence)
+                idle_time = time.time() - last_speech_time
+
+                # 6. 主动关心（基于视觉观测的预测）
+                if (
+                    presence_now
+                    and idle_time >= idle_trigger_sec
+                    and _global_state.can_trigger_proactive()
+                ):
+                    _global_state.last_proactive_time = time.time()
+                    prompt_text = (
+                        idle_prompt_func(vision_desc)
+                        if callable(idle_prompt_func)
+                        else _default_idle_prompt(vision_desc)
+                    )
+
+                    # 7. 执行主动关心动作
+                    # 使用 AutoGen 分析场景和规划动作
+                    autogen_result = autogen_integration.analyze_emotion_and_plan_action("", vision_desc)
+                    emotion = autogen_result.get("emotion", "neutral")
+                    action = autogen_result.get("action", "无动作")
+                    
+                    # 如果有图像，使用 CogVLM 进行多模态分析
+                    if cap is not None:
+                        try:
+                            ok, frame = cap.read()
+                            if ok and frame is not None:
+                                from PIL import Image
+                                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                                cogvlm_result = cogvlm_integration.process_multimodal(image, "分析当前场景，用户需要什么？")
+                                if cogvlm_result.get("success"):
+                                    emotion = cogvlm_result.get("emotion", emotion)
+                                    action = cogvlm_result.get("action", action)
+                        except Exception:
+                            pass
+                    
+                    res, audio_path = get_response(
+                        emotion,
+                        prompt_text,
+                        enable_tts=enable_tts,
+                        vision_desc=vision_desc,
+                    )
+
+                    proactive_result = ProactiveCareResult(
+                        reply=res.get("reply", "") if isinstance(res, dict) else "",
+                        audio_path=audio_path,
+                        emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
+                        action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
+                    )
+
+                    # 发布主动关心到 ROS
+                    proactive_msg = {
+                        "type": "proactive_care",
+                        "reply": proactive_result.reply,
+                        "emotion": proactive_result.emotion,
+                        "action": proactive_result.action,
+                    }
+                    ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+
+                    _global_state.set_pending_proactive(proactive_result)
+
+                    if on_proactive_output is not None:
+                        try:
+                            on_proactive_output(proactive_result)
+                        except Exception:
+                            pass
+
+            # 8. 发布状态到 ROS
+            if (now - last_ros_publish_time) >= ros_publish_interval:
+                last_ros_publish_time = now
+                if blackboard:
+                    state_msg = {
+                        "last_speech_text": getattr(blackboard, "last_speech_text", ""),
+                        "last_speech_time": getattr(blackboard, "last_speech_time", 0.0),
+                        "user_presence": getattr(blackboard, "user_presence", False),
+                        "robot_status": getattr(blackboard, "robot_status", "idle"),
+                        "vision_desc": getattr(blackboard, "current_vision_desc", ""),
+                        "vision_update_time": getattr(blackboard, "vision_update_time", 0.0),
+                        "proactive_enabled": _global_state.is_proactive_enabled(),
+                        "is_interacting": _global_state.is_interacting(),
+                    }
+                    ros_bridge.publish_message("/robot/status", state_msg)
+
+            # 9. 控制频率
+            elapsed = time.time() - start_time
+            if elapsed < control_interval:
+                time.sleep(control_interval - elapsed)
+
+    except Exception as e:
+        print(f"[agent_loop] worker crashed: {e}")
+        traceback.print_exc()
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+        _global_state.set_interacting(False)
+
+
+def start_agentic_main_loop(
+    blackboard: Optional[Blackboard] = None,
+    *,
+    enable_tts: bool = False,
+    on_proactive_output: Optional[Callable[[ProactiveCareResult], None]] = None,
+    camera_index: int = 0,
+    stt_timeout_sec: int = 2,
+    stt_phrase_time_limit_sec: int = 6,
+    vision_interval_sec: float = 6.0,
+    idle_trigger_sec: float = 30.0,
+    proactive_cooldown_sec: float = 15.0,
+    idle_prompt_func: Optional[Callable[[str], str]] = None,
+) -> "AgentLoopHandle":
+    if blackboard is None:
+        blackboard = Blackboard()
+    stop_event = threading.Event()
+
+    t = threading.Thread(
+        target=_agent_worker,
+        args=(
+            blackboard,
+            enable_tts,
+            stt_timeout_sec,
+            stt_phrase_time_limit_sec,
+            vision_interval_sec,
+            idle_trigger_sec,
+            proactive_cooldown_sec,
+            idle_prompt_func,
+            on_proactive_output,
+            camera_index,
+            stop_event,
+        ),
+        daemon=True,
+    )
+    t.start()
+    return AgentLoopHandle(thread=t, stop_event=stop_event, blackboard=blackboard)
+
+
+class AgentLoopHandle:
+    def __init__(self, thread: threading.Thread, stop_event: threading.Event, blackboard: Optional[Blackboard] = None):
+        self.thread = thread
+        self.stop_event = stop_event
+        self.blackboard = blackboard
+
+    def stop(self) -> None:
+        self.stop_event.set()
+
+    def is_alive(self) -> bool:
+        return self.thread.is_alive()
+
+
+def agentic_main_loop(blackboard: Optional[Blackboard] = None, **kwargs) -> AgentLoopHandle:
+    return start_agentic_main_loop(blackboard, **kwargs)
+
+
+def set_proactive_enabled(enabled: bool) -> None:
+    _global_state.set_proactive_enabled(enabled)
+
+
+def is_proactive_enabled() -> bool:
+    return _global_state.is_proactive_enabled()
+
+
+def get_pending_proactive() -> Optional[ProactiveCareResult]:
+    return _global_state.get_pending_proactive()
+
+
+def clear_pending_proactive() -> None:
+    _global_state.clear_pending_proactive()
+
+
+if __name__ == "__main__":
+    h = start_agentic_main_loop(enable_tts=False)
+    print("agent_loop 已在后台运行，Ctrl+C 退出。")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        h.stop()
+        print("stopped")

@@ -7,3 +7,7 @@ edge-tts
 numpy
 SpeechRecognition
 pyaudio
+chromadb
+fer
+pyautogen
+metagpt
