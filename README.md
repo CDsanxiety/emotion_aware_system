@@ -38,7 +38,9 @@ emotion_aware_system/
 └── logs/ # 日志文件目录（自动生成）
 
 🚀 快速启动
+
 1. 克隆仓库
+
 ```bash
 git clone https://github.com/CDsanxiety/emotion_aware_system.git
 cd emotion_aware_system
@@ -68,4 +70,6 @@ bash
 python app.py
 6. 访问 Web 界面
 启动成功后，浏览器打开：http://127.0.0.1:7860
+
+```
 

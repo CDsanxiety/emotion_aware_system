@@ -8,6 +8,50 @@ from vision import process_image, no_input_vision
 from audio import transcribe_file
 from llm_api import get_response, clear_memory
 from debug_mode import EMOTION_OPTIONS, PRESET_TESTS
+from agent_loop import (
+    start_agentic_main_loop,
+    set_proactive_enabled,
+    is_proactive_enabled,
+    get_pending_proactive,
+    clear_pending_proactive,
+    ProactiveCareResult,
+)
+
+_agent_loop_handle = None
+_proactive_care_display = gr.Markdown("### 🌸 主动关心\n*待机中...*")
+
+
+def _on_proactive_care(result: ProactiveCareResult) -> None:
+    pass
+
+
+def _toggle_proactive_care(enabled: bool) -> str:
+    set_proactive_enabled(enabled)
+    if enabled:
+        return "✅ **主动关心已开启**：暖暖会在你沉默时温柔地关心你哦～"
+    else:
+        return "🔕 **主动关心已关闭**"
+
+
+def _check_pending_proactive_care():
+    result = get_pending_proactive()
+    if result is None:
+        return _proactive_care_display
+    clear_pending_proactive()
+    reply_text = f"### 🌸 暖暖轻声说：{result.reply}\n\n> 😊 情绪：{result.emotion} ｜ 🎬 动作：{result.action}"
+    return reply_text
+
+
+def _start_agent_loop():
+    global _agent_loop_handle
+    if _agent_loop_handle is None or not _agent_loop_handle.is_alive():
+        _agent_loop_handle = start_agentic_main_loop(
+            enable_tts=True,
+            on_proactive_output=_on_proactive_care,
+            idle_trigger_sec=30.0,
+            proactive_cooldown_sec=15.0,
+        )
+        print("[Log] Agent loop 已启动")
 
 
 def _format_vision_panel(vision_result: dict) -> str:
@@ -208,6 +252,19 @@ with gr.Blocks(title="暖暖情感机器人仿真系统") as demo:
             with gr.Row():
                 clear_memory_btn = gr.Button("🧹 记忆清除", variant="secondary", size="sm")
                 memory_status = gr.Markdown("")
+                proactive_toggle = gr.Checkbox(
+                    label="🌸 开启主动关心",
+                    value=True,
+                    info="开启后，暖暖会在你沉默时温柔地关心你",
+                )
+                proactive_status = gr.Textbox(label="主动关心状态", interactive=False, lines=1)
+                proactive_display = gr.Markdown("### 🌸 主动关心\n*待机中...*")
+
+                proactive_toggle.change(
+                    fn=_toggle_proactive_care,
+                    inputs=[proactive_toggle],
+                    outputs=[proactive_status],
+                )
 
         with gr.Column(scale=1):
             audio_input = gr.Audio(
@@ -305,5 +362,19 @@ with gr.Blocks(title="暖暖情感机器人仿真系统") as demo:
     **技术支撑：** Qwen-VL + Google STT + Qwen-Turbo + Edge-TTS · **全链路：** 感知-决策-执行 JSON
     """)
 
+    demo.load(
+        fn=_start_agent_loop,
+        inputs=[],
+        outputs=[],
+    )
+
+    demo.load(
+        fn=_check_pending_proactive_care,
+        inputs=[],
+        outputs=[proactive_display],
+        every=3,
+    )
+
 if __name__ == "__main__":
+    _start_agent_loop()
     demo.launch(server_port=7860, show_error=True, theme=gr.themes.Soft())

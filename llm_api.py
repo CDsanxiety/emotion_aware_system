@@ -12,6 +12,8 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
+from robot_functions import get_robot_functions
+from autogen_integration import plan_task
 
 load_dotenv()
 
@@ -639,6 +641,12 @@ def get_response(
         f"[{mode}] 表情: {face_emotion} | 动作: {result.get('action')} | 回复: {reply_text[:30]}..."
     )
 
+    # 执行机器人动作
+    rf = get_robot_functions()
+    action_results = rf.execute_from_llm_result(result)
+    for ar in action_results:
+        logger.info(f"执行动作: {ar.message}")
+
     audio_path = None
     if enable_tts and reply_text:
         audio_path = speak_sync(reply_text)
@@ -653,3 +661,52 @@ if __name__ == "__main__":
     print(json.dumps(r1, ensure_ascii=False, indent=2))
     r2, _ = get_response("neutral", "嗯，但还是想和你聊两句", enable_tts=False, vision_desc="同上。")
     print(json.dumps(r2, ensure_ascii=False, indent=2))
+
+
+def get_task_plan(task: str) -> List[Dict[str, Any]]:
+    """获取任务规划
+    
+    Args:
+        task: 任务描述
+    
+    Returns:
+        任务规划步骤列表
+    """
+    try:
+        plan = plan_task(task)
+        logger.info(f"任务规划成功: {task}")
+        return plan
+    except Exception as e:
+        logger.error(f"任务规划失败: {e}")
+        return [{
+            "description": "默认步骤",
+            "action": "无动作",
+            "expected": "完成任务"
+        }]
+
+
+def execute_task_plan(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """执行任务规划
+    
+    Args:
+        plan: 任务规划步骤列表
+    
+    Returns:
+        执行结果列表
+    """
+    results = []
+    rf = get_robot_functions()
+    
+    for step in plan:
+        action = step.get("action", "无动作")
+        result = rf.execute_action(action)
+        results.append({
+            "step": step,
+            "execution_result": {
+                "success": result.success,
+                "message": result.message,
+                "action_type": result.action_type.value
+            }
+        })
+    
+    return results
