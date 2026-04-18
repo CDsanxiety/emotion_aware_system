@@ -87,7 +87,7 @@ class ROSManager:
             # 静默失败，不影响主对话逻辑，但记录日志
             logger.debug("ROS 未就绪，指令仅在 UI 展示，不发送硬件。")
             return
-        
+
         try:
             # 将大模型指令转化为 ROS 标准消息
             msg_str = json.dumps(action_payload, ensure_ascii=False)
@@ -96,6 +96,27 @@ class ROSManager:
             logger.info(f">>> 硬件指令已下发: {msg_str}")
         except Exception as e:
             logger.error(f"ROS 指令发布异常: {e}")
+
+    def publish_physical_expression(self, expression_data: dict):
+        """
+        向硬件发布物理表达指令（LED、头部动作等）
+        expression_data: 包含 led, head, body_language 等的字典
+        """
+        if not self.is_connected or not self.action_topic:
+            logger.debug("ROS 未就绪，物理表达指令不发送硬件。")
+            return
+
+        try:
+            payload = {
+                "type": "physical_expression",
+                "data": expression_data
+            }
+            msg_str = json.dumps(payload, ensure_ascii=False)
+            msg = roslibpy.Message({'data': msg_str})
+            self.action_topic.publish(msg)
+            logger.info(f">>> 物理表达已下发: {expression_data.get('body_language', 'unknown')}")
+        except Exception as e:
+            logger.error(f"ROS 物理表达发布异常: {e}")
 
     def get_status(self) -> dict:
         """获取最近一次监测到的硬件状态（用于 LLM 决策参考）。"""

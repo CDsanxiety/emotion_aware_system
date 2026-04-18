@@ -16,12 +16,15 @@ from openai.types.chat import (
 import config  # 使用集中化配置
 from memory_rag import LongTermMemory
 from pad_model import PADEmotionEngine
+from multi_agent import create_multi_agent_coordinator, MultiAgentCoordinator
+from physical_expression import get_expression_controller
 
 load_dotenv()
 
 # ================== 配置加载 ==================
 API_KEY = config.API_KEY
 USE_MOCK_LLM = not bool(API_KEY)
+USE_MULTI_AGENT = True  # 启用多代理协作
 
 if USE_MOCK_LLM:
     logger.info("LLM_API_KEY 未设置：使用本地模拟回复。")
@@ -35,6 +38,27 @@ _client: Optional[OpenAI] = None
 # 初始化新模块
 _memory = LongTermMemory()
 _pad_engine = PADEmotionEngine()
+_multi_agent_coordinator: Optional[MultiAgentCoordinator] = None
+_expression_controller = None
+
+def _get_expression_controller():
+    """获取并初始化物理表达控制器"""
+    global _expression_controller
+    if _expression_controller is None:
+        from ros_client import global_ros_manager
+        _expression_controller = get_expression_controller(global_ros_manager)
+        _expression_controller.start()
+        _pad_engine.bind_expression_controller(_expression_controller)
+        logger.info("[物理表达] 控制器已绑定到 PAD 引擎")
+    return _expression_controller
+
+def _get_multi_agent_coordinator() -> MultiAgentCoordinator:
+    """获取多代理协调器单例"""
+    global _multi_agent_coordinator
+    if _multi_agent_coordinator is None:
+        _multi_agent_coordinator = create_multi_agent_coordinator(_memory)
+        logger.info("[多代理] Agentic Reasoning 协调器已初始化")
+    return _multi_agent_coordinator
 
 # 优化后的后缀提示词：更强调简洁性以节省 Token 并降低解析失败率
 _EMPATHY_VISION_SUFFIX = """
@@ -133,7 +157,7 @@ def call_llm(emotion: str, user_text: str, vision_desc: str = "", prompt_file: s
 def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True, vision_desc: str = "") -> tuple:
     # 核心调用
     result = call_llm(face_emotion, voice_text, vision_desc=vision_desc)
-    
+
     # 逻辑提取与兼容性处理
     if "execution" in result:
         reply_text = result["execution"].get("reply", "")
@@ -145,22 +169,107 @@ def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True, vi
     # 2. 长期记忆存储
     if voice_text:
         _memory.save_memory(voice_text, reply_text, emotion_tag)
-    
+
     # 3. 更新 PAD 情绪引擎
     sentiment_score = 0
     emotion_map = {"happy": 1.0, "sad": -1.0, "angry": -0.8, "fear": -0.6, "surprise": 0.5, "disgust": -0.7}
     sentiment_score = emotion_map.get(face_emotion, 0)
-    
+
     # 简单模拟音量评分
     volume_score = 0.5 if voice_text else 0.0
     _pad_engine.update(sentiment_score, volume_score, face_emotion)
-    
+
     # 获取根据情绪状态调整的 TTS 参数
     tts_params = _pad_engine.get_tts_params()
-    
+
     audio_path = None
     if enable_tts and reply_text:
         # speak_sync 现在支持传入情绪调节参数
         audio_path = speak_sync(reply_text, tts_params)
 
     return result, audio_path
+
+
+def get_response_with_multi_agent(
+    face_emotion: str,
+    voice_text: str,
+    enable_tts: bool = True,
+    vision_desc: str = ""
+) -> tuple:
+    """
+    使用多代理协作系统生成回复 (Agentic Reasoning)
+    流程：感知代理 -> 记忆代理 -> 执行代理 -> 最终决策
+    """
+    if not USE_MULTI_AGENT:
+        return get_response(face_emotion, voice_text, enable_tts, vision_desc)
+
+    try:
+        # 确保物理表达控制器已初始化
+        _get_expression_controller()
+
+        coordinator = _get_multi_agent_coordinator()
+
+        current_context = f"视觉: {vision_desc} 语音: {voice_text} 情绪: {face_emotion}"
+        execution_result = coordinator.think(
+            vision_desc=vision_desc,
+            audio_text=voice_text,
+            current_emotion=face_emotion,
+            context=current_context
+        )
+
+        reply_text = execution_result.reply
+        emotion_tag = execution_result.emotion
+        action = execution_result.action
+        music_type = execution_result.music_type
+
+        logger.info(f"[多代理] 最终决策: {execution_result.final_decision}")
+        logger.info(f"[多代理] 回复内容: {reply_text}")
+
+        result = {
+            "execution": {
+                "reply": reply_text,
+                "emotion": emotion_tag,
+                "action": action,
+                "music_type": music_type,
+                "reasoning_chain": execution_result.reasoning_chain,
+                "should_suppress": execution_result.should_suppress
+            }
+        }
+
+        # 长期记忆存储
+        if voice_text:
+            _memory.save_memory(voice_text, reply_text, emotion_tag)
+
+        # 更新 PAD 情绪引擎
+        sentiment_score = 0
+        emotion_map = {"happy": 1.0, "sad": -1.0, "angry": -0.8, "fear": -0.6, "surprise": 0.5, "disgust": -0.7, "caring": 0.3, "supportive": 0.2, "empathetic": 0.1, "helpful": 0.1}
+        sentiment_score = emotion_map.get(emotion_tag, 0)
+
+        volume_score = 0.5 if voice_text else 0.0
+        _pad_engine.update(sentiment_score, volume_score, emotion_tag)
+
+        # 获取 PAD 物理表达描述（用于日志和调试）
+        pad_values = _pad_engine.get_pad_values()
+        emotion_state = _pad_engine.get_emotion_state_name()
+        expression_desc = _expression_controller.get_expression_description() if _expression_controller else ""
+
+        logger.info(f"[PAD] P={pad_values['P']:.2f} A={pad_values['A']:.2f} D={pad_values['D']:.2f} | 状态: {emotion_state}")
+        if expression_desc:
+            logger.info(f"[物理表达] {expression_desc}")
+
+        tts_params = _pad_engine.get_tts_params()
+
+        audio_path = None
+        if enable_tts and reply_text:
+            audio_path = speak_sync(reply_text, tts_params)
+
+            if music_type:
+                logger.info(f"[多代理] 建议播放音乐: {music_type}")
+
+        return result, audio_path
+
+    except Exception as e:
+        logger.error(f"[多代理] Agentic Reasoning 出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return get_response(face_emotion, voice_text, enable_tts, vision_desc)

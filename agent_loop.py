@@ -18,9 +18,17 @@ from llm_api import get_response
 from blackboard import Blackboard
 from ros_bridge import get_ros_bridge
 from vla_integration import create_vla_integration
-from autogen_integration import create_autogen_integration
-from cogvlm_integration import create_cogvlm_integration
+from autogen_integration import global_autogen_manager
+from memory_rag import LongTermMemory
+from utils import logger
 import vision
+
+# 初始化CogVLM集成标志
+COGVLM_AVAILABLE = False
+create_cogvlm_integration = None
+
+# 初始化长期记忆
+global_memory = LongTermMemory()
 
 
 @dataclass
@@ -47,6 +55,40 @@ def _default_idle_prompt(vision_desc: str) -> str:
     if vd:
         return f"我注意到画面与环境里有一些情绪线索：{vd}。你已经有一段时间没说话了，能不能用简短、温柔的话关心一下用户的状态？"
     return "你已经有一段时间没说话了，能不能用简短、温柔的话关心一下用户的状态？"
+
+
+def detect_scene_triggers(vision_desc: str) -> Optional[str]:
+    """检测场景触发事件"""
+    vision_desc_lower = vision_desc.lower()
+    
+    # 检测主人回家
+    if any(keyword in vision_desc_lower for keyword in ["回家", "回来了", "进门", "到家"]):
+        return "主人回家了"
+    
+    # 检测主人看起来很累
+    if any(keyword in vision_desc_lower for keyword in ["很累", "疲惫", "累", "疲惫不堪"]):
+        return "主人看起来很累"
+    
+    # 检测环境光线突然变暗
+    if any(keyword in vision_desc_lower for keyword in ["光线变暗", "变暗", "天黑", "灯光关闭"]):
+        return "环境光线突然变暗"
+    
+    return None
+
+
+def check_memory_triggers() -> Optional[str]:
+    """检查长期记忆触发事件"""
+    # 获取当前日期
+    today = time.strftime("%m-%d")
+    
+    # 检索长期记忆中的生日信息
+    birthday_query = f"今天是{today}，用户的生日是什么时候？"
+    memory_result = global_memory.query(birthday_query)
+    
+    if "生日" in memory_result and today in memory_result:
+        return "今天是你生日"
+    
+    return None
 
 
 def _safe_update_blackboard(blackboard: Optional[Blackboard], updates: Dict[str, Any]) -> None:
@@ -150,10 +192,19 @@ def _agent_worker(
     ros_bridge = get_ros_bridge()
     # 初始化 VLA 集成
     vla_integration = create_vla_integration(blackboard)
-    # 初始化 AutoGen 集成
-    autogen_integration = create_autogen_integration()
+    # 使用全局 AutoGen 管理器
+    autogen_integration = global_autogen_manager
     # 初始化 CogVLM 集成
-    cogvlm_integration = create_cogvlm_integration()
+    global COGVLM_AVAILABLE, create_cogvlm_integration
+    if not COGVLM_AVAILABLE:
+        try:
+            from cogvlm_integration import create_cogvlm_integration
+            COGVLM_AVAILABLE = True
+        except Exception as e:
+            print(f"CogVLM 集成导入失败: {e}")
+            create_cogvlm_integration = None
+            COGVLM_AVAILABLE = False
+    cogvlm_integration = create_cogvlm_integration() if COGVLM_AVAILABLE else None
 
     try:
         cap = cv2.VideoCapture(camera_index)
@@ -185,8 +236,103 @@ def _agent_worker(
                                 "user_presence": presence,
                             },
                         )
-                except Exception:
-                    pass
+                        
+                        # 3. 检测场景触发事件
+                        scene_trigger = detect_scene_triggers(vision_desc)
+                        if scene_trigger and _global_state.can_trigger_proactive():
+                            _global_state.last_proactive_time = time.time()
+                            logger.info(f"[场景触发] 检测到: {scene_trigger}")
+                            
+                            # 构建场景触发的提示
+                            if scene_trigger == "主人回家了":
+                                prompt_text = "主人刚回家，用温暖的语气问候并欢迎主人。"
+                            elif scene_trigger == "主人看起来很累":
+                                prompt_text = "主人看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
+                            elif scene_trigger == "环境光线突然变暗":
+                                prompt_text = "环境光线突然变暗，询问主人是否需要开灯或其他帮助。"
+                            else:
+                                prompt_text = f"检测到场景: {scene_trigger}，用适当的语气回应。"
+                            
+                            # 执行主动关心动作
+                            res, audio_path = get_response(
+                                "neutral",
+                                prompt_text,
+                                enable_tts=enable_tts,
+                                vision_desc=vision_desc,
+                            )
+                            
+                            proactive_result = ProactiveCareResult(
+                                reply=res.get("reply", "") if isinstance(res, dict) else "",
+                                audio_path=audio_path,
+                                emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
+                                action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
+                            )
+                            
+                            # 发布主动关心到 ROS
+                            proactive_msg = {
+                                "type": "proactive_care",
+                                "reply": proactive_result.reply,
+                                "emotion": proactive_result.emotion,
+                                "action": proactive_result.action,
+                            }
+                            ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                            
+                            _global_state.set_pending_proactive(proactive_result)
+                            
+                            if on_proactive_output is not None:
+                                try:
+                                    on_proactive_output(proactive_result)
+                                except Exception as e:
+                                    print(f"主动关心输出处理失败: {e}")
+                        
+                        # 4. 检查长期记忆触发事件
+                        if presence:
+                            memory_trigger = check_memory_triggers()
+                            if memory_trigger and _global_state.can_trigger_proactive():
+                                _global_state.last_proactive_time = time.time()
+                                logger.info(f"[记忆触发] 检测到: {memory_trigger}")
+                                
+                                # 构建记忆触发的提示
+                                if memory_trigger == "今天是你生日":
+                                    prompt_text = "今天是主人的生日，播放生日快乐音乐并送上温馨的生日祝福。"
+                                    # 这里可以添加播放音乐的逻辑
+                                else:
+                                    prompt_text = f"记忆触发: {memory_trigger}，用适当的语气回应。"
+                                
+                                # 执行主动关心动作
+                                res, audio_path = get_response(
+                                    "happy",
+                                    prompt_text,
+                                    enable_tts=enable_tts,
+                                    vision_desc=vision_desc,
+                                )
+                                
+                                proactive_result = ProactiveCareResult(
+                                    reply=res.get("reply", "") if isinstance(res, dict) else "",
+                                    audio_path=audio_path,
+                                    emotion=res.get("emotion", "happy") if isinstance(res, dict) else "happy",
+                                    action=res.get("action", "播放音乐") if isinstance(res, dict) else "播放音乐",
+                                )
+                                
+                                # 发布主动关心到 ROS
+                                proactive_msg = {
+                                    "type": "proactive_care",
+                                    "reply": proactive_result.reply,
+                                    "emotion": proactive_result.emotion,
+                                    "action": proactive_result.action,
+                                }
+                                ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                                
+                                _global_state.set_pending_proactive(proactive_result)
+                                
+                                if on_proactive_output is not None:
+                                    try:
+                                        on_proactive_output(proactive_result)
+                                    except Exception as e:
+                                        print(f"主动关心输出处理失败: {e}")
+                except Exception as e:
+                    print(f"[agent_loop] 场景检测出错: {e}")
+                    traceback.print_exc()
 
             # 3. 语音观测
             user_text = ""
@@ -221,7 +367,7 @@ def _agent_worker(
                 action = autogen_result.get("action", "无动作")
                 
                 # 如果有图像，使用 CogVLM 进行多模态分析
-                if cap is not None:
+                if cap is not None and COGVLM_AVAILABLE and cogvlm_integration:
                     try:
                         ok, frame = cap.read()
                         if ok and frame is not None:
@@ -231,8 +377,8 @@ def _agent_worker(
                             if cogvlm_result.get("success"):
                                 emotion = cogvlm_result.get("emotion", emotion)
                                 action = cogvlm_result.get("action", action)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"CogVLM 处理失败: {e}")
                 
                 # 构建 VLA 观测
                 from vla_integration import VLAObservation
@@ -291,7 +437,7 @@ def _agent_worker(
                     action = autogen_result.get("action", "无动作")
                     
                     # 如果有图像，使用 CogVLM 进行多模态分析
-                    if cap is not None:
+                    if cap is not None and COGVLM_AVAILABLE and cogvlm_integration:
                         try:
                             ok, frame = cap.read()
                             if ok and frame is not None:
@@ -301,8 +447,8 @@ def _agent_worker(
                                 if cogvlm_result.get("success"):
                                     emotion = cogvlm_result.get("emotion", emotion)
                                     action = cogvlm_result.get("action", action)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"CogVLM 处理失败: {e}")
                     
                     res, audio_path = get_response(
                         emotion,

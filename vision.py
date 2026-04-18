@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 from dotenv import load_dotenv
-from fer import FER
+from fer.fer import FER
 from openai import OpenAI
 
 from utils import logger

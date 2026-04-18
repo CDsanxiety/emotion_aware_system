@@ -8,11 +8,12 @@ import threading
 import cv2
 import gradio as gr
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 # 这里的 import 顺序按系统层级排列
 from config import ROS_BRIDGE_URI
 from audio import transcribe_file
-from llm_api import clear_memory, get_response
+from llm_api import clear_memory, get_response_with_multi_agent as get_response
 from ros_client import global_ros_manager
 from utils import logger, setup_logger
 from vision import process_image
@@ -39,6 +40,106 @@ global_vla_control_loop = VLAControlLoop(global_vla)
 
 # 状态控制
 running = True
+
+# 导入agent_loop模块
+from agent_loop import start_agentic_main_loop, AgentLoopHandle, GlobalAgentState
+
+# 全局agent_loop句柄
+global_agent_loop: Optional[AgentLoopHandle] = None
+
+# 后台监控线程状态
+_monitor_thread: Optional[threading.Thread] = None
+_monitor_stop_event = threading.Event()
+
+SCENE_KEYWORDS = [
+    "回家", "回来了", "进门", "到家",
+    "很累", "疲惫", "累", "疲惫不堪",
+    "光线变暗", "变暗", "天黑", "灯光关闭"
+]
+
+def _blackboard_monitor_worker(
+    blackboard: Blackboard,
+    check_interval: float = 8.0,
+    idle_threshold: float = 20.0,
+    scene_change_threshold: float = 0.5
+) -> None:
+    """
+    后台线程：定期扫描黑板，检测主动打扰条件
+    """
+    global_agent_state = GlobalAgentState.get_instance()
+
+    while not _monitor_stop_event.is_set():
+        try:
+            conditions = blackboard.check_proactive_conditions(
+                scene_keywords=SCENE_KEYWORDS,
+                idle_threshold=idle_threshold,
+                scene_change_threshold=scene_change_threshold
+            )
+
+            if conditions and global_agent_state.can_trigger_proactive():
+                trigger_type = conditions.get("type")
+                trigger_value = conditions.get("trigger")
+
+                logger.info(f"[黑板监控] 检测到主动打扰条件: {trigger_type} - {trigger_value}")
+
+                if trigger_type == "scene_trigger":
+                    from agent_loop import ProactiveCareResult
+                    from llm_api import get_response
+
+                    if trigger_value in ["回家", "回来了", "进门", "到家"]:
+                        prompt_text = "主人刚回家，用温暖的语气问候并欢迎主人。"
+                    elif trigger_value in ["很累", "疲惫", "累", "疲惫不堪"]:
+                        prompt_text = "主人看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
+                    elif trigger_value in ["光线变暗", "变暗", "天黑", "灯光关闭"]:
+                        prompt_text = "环境光线突然变暗，询问主人是否需要开灯或其他帮助。"
+                    else:
+                        prompt_text = f"检测到场景: {trigger_value}，用适当的语气回应。"
+
+                    res, audio_path = get_response(
+                        "neutral",
+                        prompt_text,
+                        enable_tts=True,
+                        vision_desc=blackboard.get_vision_data().get("description", "")
+                    )
+
+                    proactive_result = ProactiveCareResult(
+                        reply=res.get("reply", "") if isinstance(res, dict) else "",
+                        audio_path=audio_path,
+                        emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
+                        action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
+                    )
+
+                    global_agent_state.set_pending_proactive(proactive_result)
+                    logger.info(f"[黑板监控] 主动关心已设置: {proactive_result.reply}")
+
+        except Exception as e:
+            logger.error(f"[黑板监控] 扫描出错: {e}")
+
+        _monitor_stop_event.wait(check_interval)
+
+def start_blackboard_monitor(
+    blackboard: Blackboard,
+    check_interval: float = 8.0
+) -> threading.Thread:
+    """
+    启动黑板监控后台线程
+    """
+    monitor_thread = threading.Thread(
+        target=_blackboard_monitor_worker,
+        args=(blackboard, check_interval),
+        daemon=True,
+        name="BlackboardMonitor"
+    )
+    monitor_thread.start()
+    logger.info(f"[黑板监控] 已启动，扫描间隔: {check_interval}秒")
+    return monitor_thread
+
+def stop_blackboard_monitor() -> None:
+    """
+    停止黑板监控后台线程
+    """
+    _monitor_stop_event.set()
+    logger.info("[黑板监控] 已停止")
 
 class CoreArchitecture:
     """ROS-LLM 核心架构说明"""
@@ -184,14 +285,39 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Nuannuan V2.0 Pro") as demo:
     *注：本系统融合了 Blackboard 共享状态机与 Memory RAG，具备长期记忆与情感演化能力。*
     """)
 
+def on_proactive_output(result):
+    """处理主动关心输出"""
+    logger.info(f"[主动关心] 触发: {result.reply}")
+
 if __name__ == "__main__":
     # 初始化打印架构
     arch = CoreArchitecture()
     arch.print_summary()
-    
+
+    # 启动黑板监控线程（每隔8秒扫描一次）
+    _monitor_thread = start_blackboard_monitor(
+        blackboard=global_blackboard,
+        check_interval=8.0
+    )
+
+    # 启动agent_loop
+    global_agent_loop = start_agentic_main_loop(
+        blackboard=global_blackboard,
+        enable_tts=True,
+        on_proactive_output=on_proactive_output,
+        camera_index=0,
+        vision_interval_sec=3.0,
+        idle_trigger_sec=20.0,
+        proactive_cooldown_sec=10.0
+    )
+    logger.info("[Agent Loop] 已启动，开始自主感知与场景驱动触发")
+
     try:
         demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
     finally:
         running = False
+        stop_blackboard_monitor()
+        if global_agent_loop:
+            global_agent_loop.stop()
         global_ros_manager.shutdown()
         logger.info("系统已关闭")
