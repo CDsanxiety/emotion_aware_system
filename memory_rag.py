@@ -1,6 +1,7 @@
 import time
 import chromadb
 from chromadb.utils import embedding_functions
+from typing import List, Any
 
 class LongTermMemory:
     def __init__(self):
@@ -116,8 +117,16 @@ class LongTermMemory:
             return "长期记忆辅助：" + "；".join(results['documents'][0])
         return ""
 
-    def save_user_profile(self, birthday: str = None, name: str = None, preferences: dict = None) -> None:
-        """保存用户档案信息"""
+    def save_user_profile(self, user_id: str, birthday: str = None, name: str = None, preferences: dict = None, status: dict = None) -> None:
+        """保存用户档案信息
+        
+        Args:
+            user_id: 用户唯一标识
+            birthday: 生日
+            name: 用户名
+            preferences: 偏好设置
+            status: 当前状态（如感冒、考试等）
+        """
         profile_data = {}
         if birthday:
             profile_data["birthday"] = birthday
@@ -125,29 +134,43 @@ class LongTermMemory:
             profile_data["name"] = name
         if preferences:
             profile_data["preferences"] = preferences
+        if status:
+            profile_data["status"] = status
 
         if not profile_data:
             return
 
-        profile_id = "user_profile_main"
+        # 获取现有档案
+        existing_profile = self.get_user_profile(user_id)
+        # 合并更新
+        existing_profile.update(profile_data)
+
+        profile_id = f"user_profile_{user_id}"
         existing = self.collection.get(ids=[profile_id])
 
         if existing and existing.get("documents"):
             self.collection.update(
                 ids=[profile_id],
-                documents=[str(profile_data)],
-                metadatas=[{"type": "user_profile", "updated_at": time.strftime("%Y-%m-%d")}]
+                documents=[str(existing_profile)],
+                metadatas=[{"type": "user_profile", "user_id": user_id, "updated_at": time.strftime("%Y-%m-%d")}]
             )
         else:
             self.collection.add(
-                documents=[str(profile_data)],
-                metadatas=[{"type": "user_profile", "updated_at": time.strftime("%Y-%m-%d")}],
+                documents=[str(existing_profile)],
+                metadatas=[{"type": "user_profile", "user_id": user_id, "updated_at": time.strftime("%Y-%m-%d")}],
                 ids=[profile_id]
             )
 
-    def get_user_profile(self) -> dict:
-        """获取用户档案"""
-        profile_id = "user_profile_main"
+    def get_user_profile(self, user_id: str = None) -> dict:
+        """获取用户档案
+        
+        Args:
+            user_id: 用户唯一标识，None 表示获取主用户档案
+            
+        Returns:
+            用户档案字典
+        """
+        profile_id = f"user_profile_{user_id}" if user_id else "user_profile_main"
         try:
             result = self.collection.get(ids=[profile_id])
             if result and result.get("documents") and len(result["documents"]) > 0:
@@ -162,7 +185,60 @@ class LongTermMemory:
             pass
         return {}
 
-    def get_user_birthday(self) -> str:
-        """从用户档案获取生日信息"""
-        profile = self.get_user_profile()
+    def get_user_birthday(self, user_id: str = None) -> str:
+        """从用户档案获取生日信息
+        
+        Args:
+            user_id: 用户唯一标识
+            
+        Returns:
+            生日字符串
+        """
+        profile = self.get_user_profile(user_id)
         return profile.get("birthday", "")
+
+    def update_user_status(self, user_id: str, status: dict) -> None:
+        """更新用户状态
+        
+        Args:
+            user_id: 用户唯一标识
+            status: 状态信息，如 {"感冒": "还没好", "考试": "明天"}
+        """
+        profile = self.get_user_profile(user_id)
+        current_status = profile.get("status", {})
+        current_status.update(status)
+        self.save_user_profile(user_id, status=current_status)
+
+    def get_user_preference(self, user_id: str, preference_key: str) -> Any:
+        """获取用户特定偏好
+        
+        Args:
+            user_id: 用户唯一标识
+            preference_key: 偏好键名
+            
+        Returns:
+            偏好值
+        """
+        profile = self.get_user_profile(user_id)
+        preferences = profile.get("preferences", {})
+        return preferences.get(preference_key)
+
+    def list_users(self) -> List[str]:
+        """列出所有用户
+        
+        Returns:
+            用户ID列表
+        """
+        results = self.collection.query(
+            query_texts=["user_profile"],
+            n_results=100,
+            where={"type": "user_profile"}
+        )
+        user_ids = []
+        if results.get("metadatas"):
+            for metadata in results["metadatas"][0]:
+                if "user_id" in metadata:
+                    user_ids.append(metadata["user_id"])
+                elif metadata.get("type") == "user_profile" and "user_id" not in metadata:
+                    user_ids.append("main")
+        return list(set(user_ids))

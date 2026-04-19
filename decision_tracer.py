@@ -82,8 +82,9 @@ class ReasoningGraph:
     """
     推理图：记录从原始感知到最终决策的完整链路
     """
-    def __init__(self, session_id: str = None):
+    def __init__(self, session_id: str = None, user_id: str = None):
         self.graph_id = session_id or str(uuid.uuid4())[:8]
+        self.user_id = user_id  # 用户标识
         self.nodes: Dict[str, ReasoningNode] = {}
         self.edges: List[ReasoningEdge] = []
         self.created_at = time.time()
@@ -151,6 +152,7 @@ class ReasoningGraph:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "graph_id": self.graph_id,
+            "user_id": self.user_id,
             "nodes": {k: v.to_dict() for k, v in self.nodes.items()},
             "edges": [e.to_dict() for e in self.edges],
             "created_at": self.created_at,
@@ -164,6 +166,7 @@ class ReasoningGraph:
             f"# Reasoning Graph: {self.graph_id}",
             f"",
             f"**创建时间**: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.created_at))}",
+            f"**用户ID**: {self.user_id or 'Unknown'}",
             f"**节点数**: {len(self.nodes)}",
             f"**边数**: {len(self.edges)}",
             f"",
@@ -210,10 +213,10 @@ class DecisionTracer:
     _lock = threading.Lock()
 
     def __init__(self):
-        self._current_graph: Optional[ReasoningGraph] = None
-        self._graph_history: List[ReasoningGraph] = []
+        self._current_graphs: Dict[str, ReasoningGraph] = {}  # 按用户ID存储当前推理图
+        self._graph_history: Dict[str, List[ReasoningGraph]] = {}  # 按用户ID存储历史推理图
         self._max_history = 50
-        self._node_mapping: Dict[str, str] = {}
+        self._node_mappings: Dict[str, Dict[str, str]] = {}  # 按用户ID存储节点映射
         self._lock_graph = threading.Lock()
         self._enabled = True
 
@@ -225,64 +228,136 @@ class DecisionTracer:
                     cls._instance = cls()
         return cls._instance
 
-    def start_tracing(self, session_id: str = None) -> ReasoningGraph:
-        """开始一轮新的追踪"""
+    def start_tracing(self, session_id: str = None, user_id: str = None) -> ReasoningGraph:
+        """开始一轮新的追踪
+        
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID
+            
+        Returns:
+            新创建的推理图
+        """
         with self._lock_graph:
-            if self._current_graph:
-                self._end_tracing()
+            user_key = user_id or "default"
+            if user_key in self._current_graphs:
+                self._end_tracing(user_id)
 
-            self._current_graph = ReasoningGraph(session_id)
-            self._node_mapping = {}
-            return self._current_graph
+            self._current_graphs[user_key] = ReasoningGraph(session_id, user_id)
+            self._node_mappings[user_key] = {}
+            return self._current_graphs[user_key]
 
-    def _end_tracing(self) -> Optional[ReasoningGraph]:
-        """结束当前追踪"""
+    def _end_tracing(self, user_id: str = None) -> Optional[ReasoningGraph]:
+        """结束当前追踪
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            结束的推理图
+        """
         with self._lock_graph:
-            if self._current_graph:
-                self._graph_history.append(self._current_graph)
-                if len(self._graph_history) > self._max_history:
-                    self._graph_history.pop(0)
-                graph = self._current_graph
-                self._current_graph = None
+            user_key = user_id or "default"
+            if user_key in self._current_graphs:
+                graph = self._current_graphs[user_key]
+                if user_key not in self._graph_history:
+                    self._graph_history[user_key] = []
+                self._graph_history[user_key].append(graph)
+                if len(self._graph_history[user_key]) > self._max_history:
+                    self._graph_history[user_key].pop(0)
+                del self._current_graphs[user_key]
+                if user_key in self._node_mappings:
+                    del self._node_mappings[user_key]
                 return graph
         return None
 
-    def end_tracing(self) -> Optional[ReasoningGraph]:
-        return self._end_tracing()
+    def end_tracing(self, user_id: str = None) -> Optional[ReasoningGraph]:
+        """结束当前追踪
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            结束的推理图
+        """
+        return self._end_tracing(user_id)
 
-    def is_tracing(self) -> bool:
-        return self._current_graph is not None
+    def is_tracing(self, user_id: str = None) -> bool:
+        """检查是否正在追踪
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            是否正在追踪
+        """
+        user_key = user_id or "default"
+        return user_key in self._current_graphs
 
     def record_raw_sensor(self, sensor_type: str, raw_data: Any,
-                          presence: bool = None) -> Optional[str]:
-        """记录原始传感器数据"""
-        if not self._enabled or not self._current_graph:
+                          presence: bool = None, user_id: str = None) -> Optional[str]:
+        """记录原始传感器数据
+        
+        Args:
+            sensor_type: 传感器类型
+            raw_data: 原始数据
+            presence: 是否存在
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        node_id = self._current_graph.add_node(
+        graph = self._current_graphs[user_key]
+        node_id = graph.add_node(
             NodeType.RAW_SENSOR,
             f"原始{sensor_type}",
             {"sensor_type": sensor_type, "raw_data": raw_data, "presence": presence}
         )
-        self._node_mapping[f"raw_{sensor_type}"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key][f"raw_{sensor_type}"] = node_id
         return node_id
 
     def record_perception(self, description: str, confidence: float = 1.0,
-                          raw_sensor_ref: str = None) -> Optional[str]:
-        """记录感知结果"""
-        if not self._enabled or not self._current_graph:
+                          raw_sensor_ref: str = None, user_id: str = None) -> Optional[str]:
+        """记录感知结果
+        
+        Args:
+            description: 感知描述
+            confidence: 置信度
+            raw_sensor_ref: 原始传感器引用
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        node_id = self._current_graph.add_node(
+        graph = self._current_graphs[user_key]
+        node_id = graph.add_node(
             NodeType.PERCEPTION,
             "感知细节",
             {"description": description, "confidence": confidence}
         )
-        self._node_mapping["perception"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["perception"] = node_id
 
-        if raw_sensor_ref and raw_sensor_ref in self._node_mapping:
-            self._current_graph.add_edge(
-                self._node_mapping[raw_sensor_ref],
+        if raw_sensor_ref and user_key in self._node_mappings and raw_sensor_ref in self._node_mappings[user_key]:
+            graph.add_edge(
+                self._node_mappings[user_key][raw_sensor_ref],
                 node_id,
                 EdgeType.CAUSES,
                 label="感知来源"
@@ -291,14 +366,29 @@ class DecisionTracer:
         return node_id
 
     def record_scene_understanding(self, scene_type: str, scene_confidence: float,
-                                   keywords_matched: List[str] = None) -> Optional[str]:
-        """记录场景理解"""
-        if not self._enabled or not self._current_graph:
+                                   keywords_matched: List[str] = None, user_id: str = None) -> Optional[str]:
+        """记录场景理解
+        
+        Args:
+            scene_type: 场景类型
+            scene_confidence: 场景置信度
+            keywords_matched: 匹配的关键词
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        perception_ref = self._node_mapping.get("perception")
+        graph = self._current_graphs[user_key]
+        perception_ref = self._node_mappings.get(user_key, {}).get("perception")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.SCENE_UNDERSTANDING,
             f"场景: {scene_type}",
             {
@@ -307,10 +397,12 @@ class DecisionTracer:
                 "keywords_matched": keywords_matched or []
             }
         )
-        self._node_mapping["scene"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["scene"] = node_id
 
         if perception_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 perception_ref,
                 node_id,
                 EdgeType.SUPPORTS,
@@ -320,12 +412,27 @@ class DecisionTracer:
         return node_id
 
     def record_memory_association(self, memory_type: str, retrieved_content: Any,
-                                  relevance_score: float = 1.0) -> Optional[str]:
-        """记录记忆关联"""
-        if not self._enabled or not self._current_graph:
+                                  relevance_score: float = 1.0, user_id: str = None) -> Optional[str]:
+        """记录记忆关联
+        
+        Args:
+            memory_type: 记忆类型
+            retrieved_content: 检索到的内容
+            relevance_score: 相关度分数
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        node_id = self._current_graph.add_node(
+        graph = self._current_graphs[user_key]
+        node_id = graph.add_node(
             NodeType.MEMORY_ASSOCIATION,
             f"记忆关联: {memory_type}",
             {
@@ -334,18 +441,35 @@ class DecisionTracer:
                 "relevance": relevance_score
             }
         )
-        self._node_mapping["memory"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["memory"] = node_id
         return node_id
 
     def record_emotion_detection(self, emotion: str, confidence: float,
-                                 pad_state: Dict[str, Any] = None) -> Optional[str]:
-        """记录情绪检测"""
-        if not self._enabled or not self._current_graph:
+                                 pad_state: Dict[str, Any] = None, user_id: str = None) -> Optional[str]:
+        """记录情绪检测
+        
+        Args:
+            emotion: 情绪类型
+            confidence: 置信度
+            pad_state: PAD状态
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        perception_ref = self._node_mapping.get("perception")
+        graph = self._current_graphs[user_key]
+        perception_ref = self._node_mappings.get(user_key, {}).get("perception")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.EMOTION_DETECTION,
             f"情绪: {emotion}",
             {
@@ -354,10 +478,12 @@ class DecisionTracer:
                 "pad_state": pad_state or {}
             }
         )
-        self._node_mapping["emotion"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["emotion"] = node_id
 
         if perception_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 perception_ref,
                 node_id,
                 EdgeType.CAUSES,
@@ -367,14 +493,29 @@ class DecisionTracer:
         return node_id
 
     def record_uncertainty_reasoning(self, decision_mode: str, confidence: float,
-                                     reasoning: str = "") -> Optional[str]:
-        """记录不确定性推理"""
-        if not self._enabled or not self._current_graph:
+                                     reasoning: str = "", user_id: str = None) -> Optional[str]:
+        """记录不确定性推理
+        
+        Args:
+            decision_mode: 决策模式
+            confidence: 置信度
+            reasoning: 推理过程
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        emotion_ref = self._node_mapping.get("emotion")
+        graph = self._current_graphs[user_key]
+        emotion_ref = self._node_mappings.get(user_key, {}).get("emotion")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.UNCERTAINTY_REASONING,
             f"决策模式: {decision_mode}",
             {
@@ -383,10 +524,12 @@ class DecisionTracer:
                 "reasoning": reasoning
             }
         )
-        self._node_mapping["uncertainty"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["uncertainty"] = node_id
 
         if emotion_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 emotion_ref,
                 node_id,
                 EdgeType.CAUSES,
@@ -396,12 +539,28 @@ class DecisionTracer:
         return node_id
 
     def record_safety_check(self, safety_level: str, risk_factors: List[str],
-                           passed: bool, blocked_reason: str = None) -> Optional[str]:
-        """记录安全检查"""
-        if not self._enabled or not self._current_graph:
+                           passed: bool, blocked_reason: str = None, user_id: str = None) -> Optional[str]:
+        """记录安全检查
+        
+        Args:
+            safety_level: 安全级别
+            risk_factors: 风险因素
+            passed: 是否通过
+            blocked_reason: 阻止原因
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        node_id = self._current_graph.add_node(
+        graph = self._current_graphs[user_key]
+        node_id = graph.add_node(
             NodeType.SAFETY_CHECK,
             f"安全检查: {safety_level}",
             {
@@ -411,19 +570,36 @@ class DecisionTracer:
                 "blocked_reason": blocked_reason
             }
         )
-        self._node_mapping["safety"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["safety"] = node_id
         return node_id
 
     def record_inhibition_rule(self, rule_name: str, triggered: bool,
-                              inhibition_effect: str = None) -> Optional[str]:
-        """记录抑制规则触发"""
-        if not self._enabled or not self._current_graph:
+                              inhibition_effect: str = None, user_id: str = None) -> Optional[str]:
+        """记录抑制规则触发
+        
+        Args:
+            rule_name: 规则名称
+            triggered: 是否触发
+            inhibition_effect: 抑制效果
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        safety_ref = self._node_mapping.get("safety")
-        uncertainty_ref = self._node_mapping.get("uncertainty")
+        graph = self._current_graphs[user_key]
+        safety_ref = self._node_mappings.get(user_key, {}).get("safety")
+        uncertainty_ref = self._node_mappings.get(user_key, {}).get("uncertainty")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.INHIBITION_RULE,
             f"抑制规则: {rule_name}",
             {
@@ -432,11 +608,13 @@ class DecisionTracer:
                 "inhibition_effect": inhibition_effect
             }
         )
-        self._node_mapping[f"inhibition_{rule_name}"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key][f"inhibition_{rule_name}"] = node_id
 
         if triggered:
             if safety_ref:
-                self._current_graph.add_edge(
+                graph.add_edge(
                     safety_ref,
                     node_id,
                     EdgeType.INHIBITS,
@@ -444,7 +622,7 @@ class DecisionTracer:
                     label="安全抑制"
                 )
             if uncertainty_ref:
-                self._current_graph.add_edge(
+                graph.add_edge(
                     uncertainty_ref,
                     node_id,
                     EdgeType.INHIBITS,
@@ -455,12 +633,27 @@ class DecisionTracer:
         return node_id
 
     def record_intent_decision(self, intent: str, confidence: float,
-                              alternatives: List[str] = None) -> Optional[str]:
-        """记录意图决策"""
-        if not self._enabled or not self._current_graph:
+                              alternatives: List[str] = None, user_id: str = None) -> Optional[str]:
+        """记录意图决策
+        
+        Args:
+            intent: 意图
+            confidence: 置信度
+            alternatives: 替代方案
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        node_id = self._current_graph.add_node(
+        graph = self._current_graphs[user_key]
+        node_id = graph.add_node(
             NodeType.INTENT_DECISION,
             f"用户意图: {intent}",
             {
@@ -469,19 +662,37 @@ class DecisionTracer:
                 "alternatives": alternatives or []
             }
         )
-        self._node_mapping["intent"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["intent"] = node_id
         return node_id
 
     def record_action_selection(self, selected_action: str, llm_suggestion: str,
-                               modified: bool = False, modification_reason: str = None) -> Optional[str]:
-        """记录动作选择"""
-        if not self._enabled or not self._current_graph:
+                               modified: bool = False, modification_reason: str = None, user_id: str = None) -> Optional[str]:
+        """记录动作选择
+        
+        Args:
+            selected_action: 选择的动作
+            llm_suggestion: LLM建议
+            modified: 是否修改
+            modification_reason: 修改原因
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        intent_ref = self._node_mapping.get("intent")
-        safety_ref = self._node_mapping.get("safety")
+        graph = self._current_graphs[user_key]
+        intent_ref = self._node_mappings.get(user_key, {}).get("intent")
+        safety_ref = self._node_mappings.get(user_key, {}).get("safety")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.ACTION_SELECTION,
             f"选择动作: {selected_action}",
             {
@@ -491,10 +702,12 @@ class DecisionTracer:
                 "modification_reason": modification_reason
             }
         )
-        self._node_mapping["action"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["action"] = node_id
 
         if intent_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 intent_ref,
                 node_id,
                 EdgeType.LEADS_TO,
@@ -502,7 +715,7 @@ class DecisionTracer:
             )
 
         if safety_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 safety_ref,
                 node_id,
                 EdgeType.OVERRIDES if modified else EdgeType.SUPPORTS,
@@ -513,16 +726,31 @@ class DecisionTracer:
         return node_id
 
     def record_final_action(self, action: str, success: bool,
-                           execution_details: Dict[str, Any] = None) -> Optional[str]:
-        """记录最终执行的动作"""
-        if not self._enabled or not self._current_graph:
+                           execution_details: Dict[str, Any] = None, user_id: str = None) -> Optional[str]:
+        """记录最终执行的动作
+        
+        Args:
+            action: 动作
+            success: 是否成功
+            execution_details: 执行详情
+            user_id: 用户ID
+            
+        Returns:
+            节点ID
+        """
+        if not self._enabled:
+            return None
+        
+        user_key = user_id or "default"
+        if user_key not in self._current_graphs:
             return None
 
-        action_ref = self._node_mapping.get("action")
-        scene_ref = self._node_mapping.get("scene")
-        memory_ref = self._node_mapping.get("memory")
+        graph = self._current_graphs[user_key]
+        action_ref = self._node_mappings.get(user_key, {}).get("action")
+        scene_ref = self._node_mappings.get(user_key, {}).get("scene")
+        memory_ref = self._node_mappings.get(user_key, {}).get("memory")
 
-        node_id = self._current_graph.add_node(
+        node_id = graph.add_node(
             NodeType.FINAL_ACTION,
             f"执行: {action}",
             {
@@ -531,10 +759,12 @@ class DecisionTracer:
                 "execution_details": execution_details or {}
             }
         )
-        self._node_mapping["final"] = node_id
+        if user_key not in self._node_mappings:
+            self._node_mappings[user_key] = {}
+        self._node_mappings[user_key]["final"] = node_id
 
         if action_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 action_ref,
                 node_id,
                 EdgeType.LEADS_TO,
@@ -542,7 +772,7 @@ class DecisionTracer:
             )
 
         if scene_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 scene_ref,
                 node_id,
                 EdgeType.SUPPORTS,
@@ -551,7 +781,7 @@ class DecisionTracer:
             )
 
         if memory_ref:
-            self._current_graph.add_edge(
+            graph.add_edge(
                 memory_ref,
                 node_id,
                 EdgeType.SUPPORTS,
@@ -561,34 +791,99 @@ class DecisionTracer:
 
         return node_id
 
-    def get_current_graph(self) -> Optional[ReasoningGraph]:
-        """获取当前推理图"""
-        return self._current_graph
+    def get_current_graph(self, user_id: str = None) -> Optional[ReasoningGraph]:
+        """获取当前推理图
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            当前推理图
+        """
+        user_key = user_id or "default"
+        return self._current_graphs.get(user_key)
 
-    def get_graph_history(self, limit: int = 10) -> List[ReasoningGraph]:
-        """获取历史推理图"""
-        return self._graph_history[-limit:]
+    def get_graph_history(self, user_id: str = None, limit: int = 10) -> List[ReasoningGraph]:
+        """获取历史推理图
+        
+        Args:
+            user_id: 用户ID
+            limit: 限制数量
+            
+        Returns:
+            历史推理图列表
+        """
+        user_key = user_id or "default"
+        history = self._graph_history.get(user_key, [])
+        return history[-limit:]
 
-    def get_last_graph(self) -> Optional[ReasoningGraph]:
-        """获取最近的推理图"""
-        if self._graph_history:
-            return self._graph_history[-1]
+    def get_last_graph(self, user_id: str = None) -> Optional[ReasoningGraph]:
+        """获取最近的推理图
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            最近的推理图
+        """
+        user_key = user_id or "default"
+        history = self._graph_history.get(user_key, [])
+        if history:
+            return history[-1]
         return None
 
-    def export_json(self) -> str:
-        """导出为 JSON 格式"""
-        graphs = [g.to_dict() for g in self._graph_history]
+    def export_json(self, user_id: str = None) -> str:
+        """导出为 JSON 格式
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            JSON字符串
+        """
+        user_key = user_id or "default"
+        graphs = [g.to_dict() for g in self._graph_history.get(user_key, [])]
         return json.dumps({
+            "user_id": user_id,
             "graphs": graphs,
             "count": len(graphs)
         }, ensure_ascii=False, indent=2)
 
-    def export_last_markdown(self) -> str:
-        """导出最近的推理图为 Markdown"""
-        graph = self.get_last_graph()
+    def export_last_markdown(self, user_id: str = None) -> str:
+        """导出最近的推理图为 Markdown
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            Markdown字符串
+        """
+        graph = self.get_last_graph(user_id)
         if graph:
             return graph.to_markdown()
         return "无可用的推理图"
+
+    def export_all_users_markdown(self) -> str:
+        """导出所有用户的推理图为 Markdown
+        
+        Returns:
+            Markdown字符串
+        """
+        lines = ["# 多用户推理逻辑展示", ""]
+        
+        for user_key, history in self._graph_history.items():
+            if history:
+                latest_graph = history[-1]
+                lines.extend([
+                    f"## 用户: {latest_graph.user_id or 'Unknown'}",
+                    f"",
+                    latest_graph.to_markdown(),
+                    f"",
+                    "---",
+                    f""
+                ])
+        
+        return "\n".join(lines)
 
     def enable(self) -> None:
         self._enabled = True

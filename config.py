@@ -36,3 +36,8 @@ ROS_BRIDGE_URI = os.getenv("ROS_BRIDGE_URI", "ws://localhost:9090")
 ROS_ACTION_TOPIC = "/nuannuan/action"
 ROS_STATUS_TOPIC = "/nuannuan/status"
 ROS_STATE_TOPIC = "/nuannuan/state"
+
+# ================== 不确定性 (Uncertainty) 配置 ==================
+CONFIDENCE_THRESHOLD_HIGH = 0.75
+CONFIDENCE_THRESHOLD_LOW = 0.45
+BAYESIAN_DECAY_RATE = 0.02  # 降低衰减率，使机器人情绪保持更久

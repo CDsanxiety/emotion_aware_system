@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from utils import logger
+from config import CONFIDENCE_THRESHOLD_HIGH, CONFIDENCE_THRESHOLD_LOW, BAYESIAN_DECAY_RATE
 
 
 class DecisionMode(Enum):
@@ -43,7 +44,7 @@ class BayesianPADState:
     def __init__(self, initial_P=0.0, initial_A=0.0, initial_D=0.0, initial_variance=0.5):
         self.mean = {"P": initial_P, "A": initial_A, "D": initial_D}
         self.variance = {"P": initial_variance, "A": initial_variance, "D": initial_variance}
-        self._decay_rate = 0.05
+        self._decay_rate = BAYESIAN_DECAY_RATE
 
     def get_std(self, dimension: str) -> float:
         return math.sqrt(max(self.variance.get(dimension, 0.01), 0.0001))
@@ -113,8 +114,6 @@ class UncertaintyAwareDetector:
     不确定性感知检测器
     实现证据深度学习(EDL)风格的检测
     """
-    CONFIDENCE_THRESHOLD_HIGH = 0.75
-    CONFIDENCE_THRESHOLD_LOW = 0.45
     CONTEXT_WEIGHT = 0.4
     DIRECT_WEIGHT = 0.6
 
@@ -248,9 +247,9 @@ class UncertaintyAwareDetector:
         return max(0.1, min(0.99, base_confidence))
 
     def _determine_decision_mode(self, confidence: float, evidence_count: int) -> DecisionMode:
-        if confidence >= self.CONFIDENCE_THRESHOLD_HIGH and evidence_count <= 2:
+        if confidence >= CONFIDENCE_THRESHOLD_HIGH and evidence_count <= 2:
             return DecisionMode.CONFIDENT
-        elif confidence < self.CONFIDENCE_THRESHOLD_LOW:
+        elif confidence < CONFIDENCE_THRESHOLD_LOW:
             return DecisionMode.QUERY
         else:
             return DecisionMode.UNCERTAIN
@@ -305,13 +304,13 @@ class UncertaintyManager:
 
         pad_state = self.bayesian_pad.get_distribution_summary()
 
-        if evidence.should_query(self.CONFIDENCE_THRESHOLD_LOW):
+        if evidence.should_query(CONFIDENCE_THRESHOLD_LOW):
             if time.time() - self.last_query_time > self.query_cooldown:
                 decision_mode = DecisionMode.QUERY
                 self._pending_query = evidence
             else:
                 decision_mode = DecisionMode.UNCERTAIN
-        elif evidence.is_confident(self.CONFIDENCE_THRESHOLD_HIGH):
+        elif evidence.is_confident(CONFIDENCE_THRESHOLD_HIGH):
             decision_mode = DecisionMode.CONFIDENT
         else:
             decision_mode = DecisionMode.UNCERTAIN
