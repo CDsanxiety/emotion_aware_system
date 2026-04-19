@@ -115,3 +115,54 @@ class LongTermMemory:
         if results['documents'][0]:
             return "长期记忆辅助：" + "；".join(results['documents'][0])
         return ""
+
+    def save_user_profile(self, birthday: str = None, name: str = None, preferences: dict = None) -> None:
+        """保存用户档案信息"""
+        profile_data = {}
+        if birthday:
+            profile_data["birthday"] = birthday
+        if name:
+            profile_data["name"] = name
+        if preferences:
+            profile_data["preferences"] = preferences
+
+        if not profile_data:
+            return
+
+        profile_id = "user_profile_main"
+        existing = self.collection.get(ids=[profile_id])
+
+        if existing and existing.get("documents"):
+            self.collection.update(
+                ids=[profile_id],
+                documents=[str(profile_data)],
+                metadatas=[{"type": "user_profile", "updated_at": time.strftime("%Y-%m-%d")}]
+            )
+        else:
+            self.collection.add(
+                documents=[str(profile_data)],
+                metadatas=[{"type": "user_profile", "updated_at": time.strftime("%Y-%m-%d")}],
+                ids=[profile_id]
+            )
+
+    def get_user_profile(self) -> dict:
+        """获取用户档案"""
+        profile_id = "user_profile_main"
+        try:
+            result = self.collection.get(ids=[profile_id])
+            if result and result.get("documents") and len(result["documents"]) > 0:
+                profile_str = result["documents"][0]
+                if profile_str.startswith("{") and profile_str.endswith("}"):
+                    import ast
+                    try:
+                        return ast.literal_eval(profile_str)
+                    except:
+                        pass
+        except:
+            pass
+        return {}
+
+    def get_user_birthday(self) -> str:
+        """从用户档案获取生日信息"""
+        profile = self.get_user_profile()
+        return profile.get("birthday", "")

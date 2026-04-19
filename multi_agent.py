@@ -205,17 +205,23 @@ class MemoryAgent:
 
     def _check_special_dates(self, result: MemoryResult) -> None:
         """检查特殊日期"""
+        from memory_rag import global_memory
+
         today = time.strftime("%m-%d")
 
         special_date_mapping = {
             "01-01": "元旦",
             "02-14": "情人节",
-            "04-18": "生日",  # 今天
             "05-01": "劳动节",
             "06-01": "儿童节",
             "10-01": "国庆节",
             "12-25": "圣诞节"
         }
+
+        user_birthday = global_memory.get_user_birthday()
+        if user_birthday:
+            birthday_month_day = user_birthday[5:] if len(user_birthday) >= 5 else user_birthday
+            special_date_mapping[birthday_month_day] = "生日"
 
         if today in special_date_mapping:
             result.special_dates.append(f"今天是{special_date_mapping[today]}")

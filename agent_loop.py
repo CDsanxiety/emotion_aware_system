@@ -57,22 +57,52 @@ def _default_idle_prompt(vision_desc: str) -> str:
     return "你已经有一段时间没说话了，能不能用简短、温柔的话关心一下用户的状态？"
 
 
+def _semantic_scene_match(vision_desc_lower: str, scene_type: str) -> bool:
+    """基于语义覆盖的场景匹配"""
+    semantic_keywords = {
+        "回家": {
+            "direct": ["回家", "回来了", "进门", "到家", "进入家门", "踏入家门", "推门进入", "开门进来", "刚回来"],
+            "context": ["主人", "走进来", "进来", "进入", "回来"]
+        },
+        "疲惫": {
+            "direct": ["很累", "疲惫", "累", "疲惫不堪", "无精打采", "有气无力", "精神不振", "疲劳"],
+            "context": ["主人", "看起来", "好像", "似乎", "感觉"]
+        },
+        "光线变暗": {
+            "direct": ["光线变暗", "变暗", "天黑", "灯光关闭", "变黑了", "暗下来", "黑暗", "光线不足"],
+            "context": ["环境", "房间", "室内", "光线", "周围"]
+        }
+    }
+
+    if scene_type not in semantic_keywords:
+        return False
+
+    keywords = semantic_keywords[scene_type]
+    direct_match = any(kw in vision_desc_lower for kw in keywords.get("direct", []))
+
+    if direct_match:
+        return True
+
+    context_match_count = sum(1 for kw in keywords.get("context", []) if kw in vision_desc_lower)
+    return context_match_count >= 2
+
+
 def detect_scene_triggers(vision_desc: str) -> Optional[str]:
-    """检测场景触发事件"""
+    """检测场景触发事件（基于语义匹配）"""
+    if not vision_desc:
+        return None
+
     vision_desc_lower = vision_desc.lower()
-    
-    # 检测主人回家
-    if any(keyword in vision_desc_lower for keyword in ["回家", "回来了", "进门", "到家"]):
+
+    if _semantic_scene_match(vision_desc_lower, "回家"):
         return "主人回家了"
-    
-    # 检测主人看起来很累
-    if any(keyword in vision_desc_lower for keyword in ["很累", "疲惫", "累", "疲惫不堪"]):
+
+    if _semantic_scene_match(vision_desc_lower, "疲惫"):
         return "主人看起来很累"
-    
-    # 检测环境光线突然变暗
-    if any(keyword in vision_desc_lower for keyword in ["光线变暗", "变暗", "天黑", "灯光关闭"]):
+
+    if _semantic_scene_match(vision_desc_lower, "光线变暗"):
         return "环境光线突然变暗"
-    
+
     return None
 
 
@@ -192,8 +222,10 @@ def _agent_worker(
     ros_bridge = get_ros_bridge()
     # 初始化 VLA 集成
     vla_integration = create_vla_integration(blackboard)
-    # 使用全局 AutoGen 管理器
+    # 使用全局 AutoGen 管理器并初始化
     autogen_integration = global_autogen_manager
+    if autogen_integration and hasattr(autogen_integration, 'initialize_agents'):
+        autogen_integration.initialize_agents()
     # 初始化 CogVLM 集成
     global COGVLM_AVAILABLE, create_cogvlm_integration
     if not COGVLM_AVAILABLE:
@@ -365,7 +397,32 @@ def _agent_worker(
                 autogen_result = autogen_integration.analyze_emotion_and_plan_action(user_text, vision_desc)
                 emotion = autogen_result.get("emotion", "neutral")
                 action = autogen_result.get("action", "无动作")
-                
+                confidence = autogen_result.get("confidence", 1.0)
+                decision_mode = autogen_result.get("decision_mode", "confident")
+                pad_state = autogen_result.get("pad_state", {})
+
+                # 如果是询问模式，生成询问用户的提示
+                if autogen_result.get("needs_query", False):
+                    logger.info(f"[不确定性] 置信度: {confidence:.2f}，进入询问模式")
+                    inquiry_text = action
+                    res, audio_path = get_response(
+                        emotion,
+                        inquiry_text,
+                        enable_tts=enable_tts,
+                        vision_desc=vision_desc,
+                    )
+                    _safe_update_blackboard(
+                        blackboard,
+                        {
+                            "last_robot_result": res,
+                            "last_robot_audio_path": audio_path,
+                            "last_emotion_confidence": confidence,
+                            "last_decision_mode": decision_mode,
+                        },
+                    )
+                    _global_state.set_interacting(False)
+                    continue
+
                 # 如果有图像，使用 CogVLM 进行多模态分析
                 if cap is not None and COGVLM_AVAILABLE and cogvlm_integration:
                     try:
