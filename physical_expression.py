@@ -42,6 +42,13 @@ class PhysicalExpression:
     head_pose: HeadPose = None
     body_language: str = "neutral" # neutral, welcoming, caring, alert, subdued
     facial_expression: str = "neutral" # neutral, happy, concerned, curious, sad
+    # 运动动力学参数
+    acceleration: float = 1.0      # 加速度系数 (0.1-2.0)
+    deceleration: float = 1.0      # 减速度系数 (0.1-2.0)
+    max_speed: float = 1.0         # 最大速度系数 (0.5-1.5)
+    jerk: float = 0.5              # 抖动率 (0.0-1.0)
+    motion_smoothness: float = 0.8 # 运动平滑度 (0.0-1.0)
+    deceleration_profile: str = "linear" # linear, exponential, polynomial
 
 
 class PADToPhysicalMapper:
@@ -94,8 +101,105 @@ class PADToPhysicalMapper:
             # 5. 映射表情 (基于 P)
             expression.facial_expression = self._map_facial_expression(p, a)
 
+            # 6. 映射运动动力学参数 (基于 P, A, D)
+            self._map_motion_dynamics(expression, p, a, d)
+
             self.target_expression = expression
             return expression
+
+    def _map_motion_dynamics(self, expression: PhysicalExpression, p: float, a: float, d: float):
+        """
+        映射运动动力学参数
+
+        规则:
+        - P 高: 运动更流畅，减速度更平滑
+        - P 低: 运动更缓慢，减速度更大（悲伤时）
+        - A 高: 加速度更大，抖动率更高
+        - A 低: 加速度更小，运动更平稳
+        - D 高: 最大速度更高，运动更直接
+        - D 低: 最大速度更低，运动更谨慎
+        """
+        # 加速度: 激活度影响，高激活度时加速度更大
+        expression.acceleration = 1.0 + (a * 0.5)
+
+        # 减速度: 愉悦度影响，悲伤时减速度更大
+        if p < self.P_LOW_THRESHOLD:
+            expression.deceleration = 1.5 + abs(p) * 0.5  # 悲伤时更快减速
+        else:
+            expression.deceleration = 1.0 + (a * 0.3)  # 激活度影响减速度
+
+        # 最大速度: 优势度和激活度共同影响
+        expression.max_speed = 1.0 + (d * 0.3) + (a * 0.2)
+
+        # 抖动率: 激活度影响，高激活度时抖动更多
+        expression.jerk = 0.5 + (a * 0.3)
+
+        # 运动平滑度: 愉悦度影响，高愉悦度时更平滑
+        expression.motion_smoothness = 0.8 + (p * 0.15)
+
+        # 减速曲线: 基于情绪状态选择
+        if p < self.P_LOW_THRESHOLD:
+            # 悲伤时使用指数减速，更平滑
+            expression.deceleration_profile = "exponential"
+        elif a > self.A_HIGH_THRESHOLD:
+            # 高激活度时使用线性减速，更直接
+            expression.deceleration_profile = "linear"
+        else:
+            # 其他情况使用多项式减速
+            expression.deceleration_profile = "polynomial"
+
+        # 限制范围
+        expression.acceleration = max(0.1, min(2.0, expression.acceleration))
+        expression.deceleration = max(0.1, min(2.0, expression.deceleration))
+        expression.max_speed = max(0.5, min(1.5, expression.max_speed))
+        expression.jerk = max(0.0, min(1.0, expression.jerk))
+        expression.motion_smoothness = max(0.0, min(1.0, expression.motion_smoothness))
+
+    def calculate_deceleration_profile(self, initial_speed: float, target_speed: float, 
+                                     profile_type: str, deceleration_factor: float) -> List[float]:
+        """
+        计算减速曲线
+
+        参数:
+            initial_speed: 初始速度
+            target_speed: 目标速度
+            profile_type: 减速曲线类型 (linear, exponential, polynomial)
+            deceleration_factor: 减速系数
+
+        返回:
+            List[float]: 减速过程中的速度序列
+        """
+        speed_diff = initial_speed - target_speed
+        if speed_diff <= 0:
+            return [initial_speed]
+
+        # 生成10个采样点的减速曲线
+        steps = 10
+        speed_profile = []
+
+        for i in range(steps + 1):
+            t = i / steps  # 归一化时间
+
+            if profile_type == "linear":
+                # 线性减速
+                current_speed = initial_speed - (speed_diff * t)
+
+            elif profile_type == "exponential":
+                # 指数减速（更平滑）
+                current_speed = target_speed + (speed_diff * (1 - t) ** (2 * deceleration_factor))
+
+            elif profile_type == "polynomial":
+                # 多项式减速（平滑过渡）
+                current_speed = target_speed + (speed_diff * (1 - t) ** 3)
+
+            else:
+                # 默认线性减速
+                current_speed = initial_speed - (speed_diff * t)
+
+            current_speed = max(target_speed, current_speed)
+            speed_profile.append(current_speed)
+
+        return speed_profile
 
     def _map_led(self, p: float, a: float) -> Tuple[Tuple[int, int, int], float]:
         """
@@ -295,11 +399,52 @@ class PhysicalExpressionController:
         """更新循环：平滑过渡并发布到 ROS"""
         while not self._stop_event.is_set():
             try:
+                self._smooth_transition()
                 self._apply_expression()
             except Exception as e:
                 logger.error(f"[物理表达] 更新异常: {e}")
 
             self._stop_event.wait(0.1)  # 10Hz 更新频率
+
+    def _smooth_transition(self):
+        """平滑过渡到目标表达式"""
+        with self._lock:
+            # 获取目标表达式
+            target = self.mapper.target_expression
+            current = self.current_expression
+
+            if not target or not current:
+                return
+
+            # 平滑过渡 LED 参数
+            current.led_brightness = self._smooth_value(current.led_brightness, target.led_brightness)
+
+            # 平滑过渡头部姿态
+            if target.head_pose and current.head_pose:
+                current.head_pose.yaw_angle = self._smooth_value(current.head_pose.yaw_angle, target.head_pose.yaw_angle)
+                current.head_pose.pitch_angle = self._smooth_value(current.head_pose.pitch_angle, target.head_pose.pitch_angle)
+                current.head_pose.speed = self._smooth_value(current.head_pose.speed, target.head_pose.speed)
+                current.head_pose.nod_frequency = self._smooth_value(current.head_pose.nod_frequency, target.head_pose.nod_frequency)
+
+            # 平滑过渡运动动力学参数
+            current.acceleration = self._smooth_value(current.acceleration, target.acceleration)
+            current.deceleration = self._smooth_value(current.deceleration, target.deceleration)
+            current.max_speed = self._smooth_value(current.max_speed, target.max_speed)
+            current.jerk = self._smooth_value(current.jerk, target.jerk)
+            current.motion_smoothness = self._smooth_value(current.motion_smoothness, target.motion_smoothness)
+
+            # 直接切换减速曲线类型
+            current.deceleration_profile = target.deceleration_profile
+
+            # 直接切换其他离散参数
+            current.led_color = target.led_color
+            current.led_animation = target.led_animation
+            current.body_language = target.body_language
+            current.facial_expression = target.facial_expression
+
+    def _smooth_value(self, current: float, target: float, factor: float = 0.1) -> float:
+        """平滑过渡数值"""
+        return current + (target - current) * factor
 
     def _apply_expression(self):
         """应用当前表达式到硬件"""
@@ -323,12 +468,22 @@ class PhysicalExpressionController:
                 "nod_frequency": expr.head_pose.nod_frequency if expr.head_pose else 0.0
             },
             "body_language": expr.body_language,
-            "facial_expression": expr.facial_expression
+            "facial_expression": expr.facial_expression,
+            "motion": {
+                "acceleration": expr.acceleration,
+                "deceleration": expr.deceleration,
+                "max_speed": expr.max_speed,
+                "jerk": expr.jerk,
+                "motion_smoothness": expr.motion_smoothness,
+                "deceleration_profile": expr.deceleration_profile
+            }
         }
 
         try:
             self.ros_manager.publish_action(expression_msg)
-            logger.debug(f"[物理表达] 已发布: LED={expr.led_color}, 动画={expr.led_animation}")
+            logger.debug(f"[物理表达] 已发布: LED={expr.led_color}, 动画={expr.led_animation}, "
+                        f"加速度={expr.acceleration:.2f}, 减速度={expr.deceleration:.2f}, "
+                        f"减速曲线={expr.deceleration_profile}")
         except Exception as e:
             logger.error(f"[物理表达] 发布失败: {e}")
 
@@ -379,6 +534,11 @@ class PhysicalExpressionController:
         }
         body_name = body_names.get(expr.body_language, "未知")
         desc_parts.append(f"肢体: {body_name}")
+
+        # 运动动力学描述
+        desc_parts.append(f"运动: 加速度={expr.acceleration:.2f} 减速度={expr.deceleration:.2f} "
+                        f"最大速度={expr.max_speed:.2f} 抖动={expr.jerk:.2f} "
+                        f"平滑度={expr.motion_smoothness:.2f} 减速曲线={expr.deceleration_profile}")
 
         return " | ".join(desc_parts)
 

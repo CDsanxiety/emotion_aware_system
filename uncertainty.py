@@ -279,6 +279,7 @@ class UncertaintyManager:
     def __init__(self):
         self.detector = UncertaintyAwareDetector()
         self.bayesian_pad = BayesianPADState()
+        self.conflict_resolver = get_conflict_resolver()
         self.last_query_time = 0.0
         self.query_cooldown = 30.0
         self._pending_query: Optional[EvidenceResult] = None
@@ -316,6 +317,33 @@ class UncertaintyManager:
             decision_mode = DecisionMode.UNCERTAIN
 
         return evidence, pad_state, decision_mode
+
+    def resolve_multimodal_conflict(
+        self,
+        vision_evidence: EvidenceResult,
+        audio_evidence: EvidenceResult,
+        text_evidence: EvidenceResult = None
+    ) -> Dict[str, Any]:
+        """
+        解决多模态冲突
+        """
+        return self.conflict_resolver.resolve_conflict(
+            vision_evidence, audio_evidence, text_evidence
+        )
+
+    def handle_specific_conflict(
+        self,
+        conflict_type: str,
+        vision_evidence: EvidenceResult,
+        audio_evidence: EvidenceResult,
+        text_evidence: EvidenceResult = None
+    ) -> Dict[str, Any]:
+        """
+        处理特定类型的冲突
+        """
+        return self.conflict_resolver.handle_specific_conflict(
+            conflict_type, vision_evidence, audio_evidence, text_evidence
+        )
 
     def should_ask_question(self) -> bool:
         if self._pending_query is None:
@@ -357,3 +385,276 @@ def get_uncertainty_manager() -> UncertaintyManager:
     if _global_uncertainty_manager is None:
         _global_uncertainty_manager = UncertaintyManager()
     return _global_uncertainty_manager
+
+
+class ModalConflictResolver:
+    """
+    多模态冲突解决器
+    使用贝叶斯权重来自动调解视觉与听觉的冲突
+    """
+
+    def __init__(self):
+        # 模态可靠性先验概率
+        self.modality_reliability = {
+            "vision": 0.7,  # 视觉识别的基础可靠性
+            "audio": 0.6,   # 音频识别的基础可靠性
+            "text": 0.8     # 文本识别的基础可靠性
+        }
+        
+        # 情绪-模态关联度
+        self.emotion_modality_relevance = {
+            "happy": {"vision": 0.9, "audio": 0.8, "text": 0.7},
+            "sad": {"vision": 0.8, "audio": 0.9, "text": 0.7},
+            "angry": {"vision": 0.7, "audio": 0.9, "text": 0.8},
+            "fear": {"vision": 0.8, "audio": 0.8, "text": 0.6},
+            "surprise": {"vision": 0.9, "audio": 0.7, "text": 0.6},
+            "neutral": {"vision": 0.6, "audio": 0.6, "text": 0.6}
+        }
+        
+        # 冲突类型权重
+        self.conflict_type_weights = {
+            "vision_vs_audio": 0.5,  # 视觉与音频冲突的权重
+            "vision_vs_text": 0.3,   # 视觉与文本冲突的权重
+            "audio_vs_text": 0.2     # 音频与文本冲突的权重
+        }
+
+    def resolve_conflict(self, vision_evidence: EvidenceResult, 
+                       audio_evidence: EvidenceResult, 
+                       text_evidence: EvidenceResult = None) -> Dict[str, Any]:
+        """
+        解决多模态冲突
+
+        参数:
+            vision_evidence: 视觉识别的证据结果
+            audio_evidence: 音频识别的证据结果
+            text_evidence: 文本识别的证据结果（可选）
+
+        返回:
+            Dict: 解决结果，包含最终情绪、置信度和冲突分析
+        """
+        # 计算各模态的贝叶斯权重
+        weights = self._calculate_bayesian_weights(vision_evidence, audio_evidence, text_evidence)
+        
+        # 计算加权后的情绪得分
+        emotion_scores = self._calculate_emotion_scores(
+            vision_evidence, audio_evidence, text_evidence, weights
+        )
+        
+        # 确定最终情绪
+        final_emotion = max(emotion_scores, key=emotion_scores.get)
+        final_confidence = emotion_scores[final_emotion]
+        
+        # 分析冲突类型
+        conflict_analysis = self._analyze_conflicts(
+            vision_evidence, audio_evidence, text_evidence, weights
+        )
+        
+        return {
+            "final_emotion": final_emotion,
+            "final_confidence": final_confidence,
+            "weights": weights,
+            "conflict_analysis": conflict_analysis,
+            "reasoning": self._generate_reasoning(weights, emotion_scores, conflict_analysis)
+        }
+
+    def _calculate_bayesian_weights(self, vision_evidence: EvidenceResult, 
+                                  audio_evidence: EvidenceResult, 
+                                  text_evidence: EvidenceResult = None) -> Dict[str, float]:
+        """
+        计算各模态的贝叶斯权重
+        """
+        weights = {}
+        
+        # 计算视觉权重
+        vision_relevance = self.emotion_modality_relevance.get(
+            vision_evidence.label, self.emotion_modality_relevance["neutral"]
+        ).get("vision", 0.5)
+        weights["vision"] = (self.modality_reliability["vision"] * 
+                           vision_evidence.confidence * vision_relevance)
+        
+        # 计算音频权重
+        audio_relevance = self.emotion_modality_relevance.get(
+            audio_evidence.label, self.emotion_modality_relevance["neutral"]
+        ).get("audio", 0.5)
+        weights["audio"] = (self.modality_reliability["audio"] * 
+                          audio_evidence.confidence * audio_relevance)
+        
+        # 计算文本权重（如果有）
+        if text_evidence:
+            text_relevance = self.emotion_modality_relevance.get(
+                text_evidence.label, self.emotion_modality_relevance["neutral"]
+            ).get("text", 0.5)
+            weights["text"] = (self.modality_reliability["text"] * 
+                             text_evidence.confidence * text_relevance)
+        
+        # 归一化权重
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            for modality in weights:
+                weights[modality] /= total_weight
+        
+        return weights
+
+    def _calculate_emotion_scores(self, vision_evidence: EvidenceResult, 
+                                 audio_evidence: EvidenceResult, 
+                                 text_evidence: EvidenceResult = None, 
+                                 weights: Dict[str, float] = None) -> Dict[str, float]:
+        """
+        计算加权后的情绪得分
+        """
+        if weights is None:
+            weights = self._calculate_bayesian_weights(vision_evidence, audio_evidence, text_evidence)
+        
+        emotion_scores = {}
+        
+        # 收集所有可能的情绪
+        emotions = set()
+        emotions.add(vision_evidence.label)
+        emotions.add(audio_evidence.label)
+        if text_evidence:
+            emotions.add(text_evidence.label)
+        
+        # 计算每种情绪的加权得分
+        for emotion in emotions:
+            score = 0.0
+            
+            # 视觉贡献
+            if vision_evidence.label == emotion:
+                score += weights.get("vision", 0) * vision_evidence.confidence
+            
+            # 音频贡献
+            if audio_evidence.label == emotion:
+                score += weights.get("audio", 0) * audio_evidence.confidence
+            
+            # 文本贡献
+            if text_evidence and text_evidence.label == emotion:
+                score += weights.get("text", 0) * text_evidence.confidence
+            
+            emotion_scores[emotion] = score
+        
+        return emotion_scores
+
+    def _analyze_conflicts(self, vision_evidence: EvidenceResult, 
+                         audio_evidence: EvidenceResult, 
+                         text_evidence: EvidenceResult = None, 
+                         weights: Dict[str, float] = None) -> Dict[str, Any]:
+        """
+        分析冲突类型和程度
+        """
+        if weights is None:
+            weights = self._calculate_bayesian_weights(vision_evidence, audio_evidence, text_evidence)
+        
+        conflicts = {
+            "has_conflict": False,
+            "conflict_type": None,
+            "conflict_strength": 0.0,
+            "dominant_modality": None
+        }
+        
+        # 检查视觉与音频冲突
+        if vision_evidence.label != audio_evidence.label:
+            conflicts["has_conflict"] = True
+            conflicts["conflict_type"] = "vision_vs_audio"
+            conflicts["conflict_strength"] = self.conflict_type_weights["vision_vs_audio"]
+        
+        # 检查视觉与文本冲突
+        elif text_evidence and vision_evidence.label != text_evidence.label:
+            conflicts["has_conflict"] = True
+            conflicts["conflict_type"] = "vision_vs_text"
+            conflicts["conflict_strength"] = self.conflict_type_weights["vision_vs_text"]
+        
+        # 检查音频与文本冲突
+        elif text_evidence and audio_evidence.label != text_evidence.label:
+            conflicts["has_conflict"] = True
+            conflicts["conflict_type"] = "audio_vs_text"
+            conflicts["conflict_strength"] = self.conflict_type_weights["audio_vs_text"]
+        
+        # 确定主导模态
+        if weights:
+            conflicts["dominant_modality"] = max(weights, key=weights.get)
+        
+        return conflicts
+
+    def _generate_reasoning(self, weights: Dict[str, float], 
+                          emotion_scores: Dict[str, float], 
+                          conflict_analysis: Dict[str, Any]) -> str:
+        """
+        生成冲突解决的推理过程
+        """
+        parts = []
+        
+        # 模态权重
+        parts.append("模态权重分析:")
+        for modality, weight in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+            parts.append(f"  - {modality}: {weight:.2f}")
+        
+        # 情绪得分
+        parts.append("\n情绪得分:")
+        for emotion, score in sorted(emotion_scores.items(), key=lambda x: x[1], reverse=True):
+            parts.append(f"  - {emotion}: {score:.2f}")
+        
+        # 冲突分析
+        if conflict_analysis["has_conflict"]:
+            parts.append(f"\n冲突分析: {conflict_analysis['conflict_type']} (强度: {conflict_analysis['conflict_strength']:.2f})")
+            parts.append(f"主导模态: {conflict_analysis['dominant_modality']}")
+        else:
+            parts.append("\n无冲突: 各模态一致")
+        
+        return "\n".join(parts)
+
+    def handle_specific_conflict(self, conflict_type: str, 
+                               vision_evidence: EvidenceResult, 
+                               audio_evidence: EvidenceResult, 
+                               text_evidence: EvidenceResult = None) -> Dict[str, Any]:
+        """
+        处理特定类型的冲突
+        """
+        # 对于视觉识别出'笑'但语义分析出'反讽或哭泣'的情况
+        if conflict_type == "vision_vs_audio" and \
+           "笑" in vision_evidence.reasoning and \
+           ("反讽" in (text_evidence.reasoning if text_evidence else "") or \
+            "哭泣" in (text_evidence.reasoning if text_evidence else "")):
+            
+            # 这种情况下，文本/语义分析更可靠
+            weights = self._calculate_bayesian_weights(vision_evidence, audio_evidence, text_evidence)
+            # 增加文本权重
+            if "text" in weights:
+                weights["text"] *= 1.5
+                # 重新归一化
+                total = sum(weights.values())
+                for k in weights:
+                    weights[k] /= total
+            
+            emotion_scores = self._calculate_emotion_scores(
+                vision_evidence, audio_evidence, text_evidence, weights
+            )
+            
+            final_emotion = max(emotion_scores, key=emotion_scores.get)
+            
+            return {
+                "final_emotion": final_emotion,
+                "final_confidence": emotion_scores[final_emotion],
+                "weights": weights,
+                "conflict_analysis": {
+                    "has_conflict": True,
+                    "conflict_type": "vision_vs_semantic",
+                    "conflict_strength": 0.7,
+                    "dominant_modality": "text"
+                },
+                "reasoning": "检测到视觉与语义冲突：'笑'可能是反讽或假笑，优先采用语义分析结果"
+            }
+        
+        # 默认冲突处理
+        return self.resolve_conflict(vision_evidence, audio_evidence, text_evidence)
+
+
+# 全局多模态冲突解决器
+_global_conflict_resolver: Optional[ModalConflictResolver] = None
+
+
+def get_conflict_resolver() -> ModalConflictResolver:
+    """获取全局多模态冲突解决器单例"""
+    global _global_conflict_resolver
+    if _global_conflict_resolver is None:
+        _global_conflict_resolver = ModalConflictResolver()
+    return _global_conflict_resolver

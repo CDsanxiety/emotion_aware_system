@@ -10,7 +10,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict
+from collections import defaultdict, Counter
 import json
 
 
@@ -36,6 +36,130 @@ class EdgeType(Enum):
     OVERRIDES = "overrides"
 
 
+class ModelType(Enum):
+    LOCAL = "local"
+    CLOUD = "cloud"
+
+
+@dataclass
+class LatencyRecord:
+    """延迟记录"""
+    node_type: NodeType
+    model_type: ModelType
+    start_time: float
+    end_time: float
+    duration_ms: float
+    network_condition: str = "GOOD"
+    error: str = None
+
+    def __post_init__(self):
+        if self.end_time and self.start_time:
+            self.duration_ms = (self.end_time - self.start_time) * 1000
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "node_type": self.node_type.value,
+            "model_type": self.model_type.value,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_ms": self.duration_ms,
+            "network_condition": self.network_condition,
+            "error": self.error
+        }
+
+
+class LatencyStats:
+    """延迟统计聚合器"""
+
+    def __init__(self):
+        self.local_latencies: Dict[NodeType, List[float]] = defaultdict(list)
+        self.cloud_latencies: Dict[NodeType, List[float]] = defaultdict(list)
+        self.network_conditions: List[str] = []
+        self._lock = threading.Lock()
+
+    def add_latency(self, node_type: NodeType, model_type: ModelType,
+                   duration_ms: float, network_condition: str = "GOOD") -> None:
+        with self._lock:
+            if model_type == ModelType.LOCAL:
+                self.local_latencies[node_type].append(duration_ms)
+            else:
+                self.cloud_latencies[node_type].append(duration_ms)
+            self.network_conditions.append(network_condition)
+
+    def get_stats(self, node_type: NodeType) -> Dict[str, Any]:
+        with self._lock:
+            local = self.local_latencies.get(node_type, [])
+            cloud = self.cloud_latencies.get(node_type, [])
+
+            return {
+                "node_type": node_type.value,
+                "local": {
+                    "count": len(local),
+                    "avg_ms": sum(local) / len(local) if local else 0,
+                    "min_ms": min(local) if local else 0,
+                    "max_ms": max(local) if local else 0,
+                    "p95_ms": sorted(local)[int(len(local) * 0.95)] if len(local) >= 20 else (sorted(local)[-1] if local else 0)
+                },
+                "cloud": {
+                    "count": len(cloud),
+                    "avg_ms": sum(cloud) / len(cloud) if cloud else 0,
+                    "min_ms": min(cloud) if cloud else 0,
+                    "max_ms": max(cloud) if cloud else 0,
+                    "p95_ms": sorted(cloud)[int(len(cloud) * 0.95)] if len(cloud) >= 20 else (sorted(cloud)[-1] if cloud else 0)
+                }
+            }
+
+    def get_end_to_end_stats(self) -> Dict[str, Any]:
+        with self._lock:
+            all_local = []
+            all_cloud = []
+
+            for latencies in self.local_latencies.values():
+                all_local.extend(latencies)
+            for latencies in self.cloud_latencies.values():
+                all_cloud.extend(latencies)
+
+            return {
+                "local_e2e": {
+                    "total_samples": len(all_local),
+                    "avg_ms": sum(all_local) / len(all_local) if all_local else 0,
+                    "min_ms": min(all_local) if all_local else 0,
+                    "max_ms": max(all_local) if all_local else 0,
+                    "p95_ms": sorted(all_local)[int(len(all_local) * 0.95)] if len(all_local) >= 20 else (sorted(all_local)[-1] if all_local else 0)
+                },
+                "cloud_e2e": {
+                    "total_samples": len(all_cloud),
+                    "avg_ms": sum(all_cloud) / len(all_cloud) if all_cloud else 0,
+                    "min_ms": min(all_cloud) if all_cloud else 0,
+                    "max_ms": max(all_cloud) if all_cloud else 0,
+                    "p95_ms": sorted(all_cloud)[int(len(all_cloud) * 0.95)] if len(all_cloud) >= 20 else (sorted(all_cloud)[-1] if all_cloud else 0)
+                },
+                "network_conditions": dict(Counter(self.network_conditions))
+            }
+
+    def get_comparison_data(self) -> Dict[str, Any]:
+        node_types = set(self.local_latencies.keys()) | set(self.cloud_latencies.keys())
+        comparison = {}
+
+        for nt in node_types:
+            stats = self.get_stats(nt)
+            comparison[nt.value] = {
+                "local_avg": stats["local"]["avg_ms"],
+                "cloud_avg": stats["cloud"]["avg_ms"],
+                "overhead_ms": stats["cloud"]["avg_ms"] - stats["local"]["avg_ms"] if stats["cloud"]["avg_ms"] and stats["local"]["avg_ms"] else 0
+            }
+
+        return comparison
+
+    def to_dict(self) -> Dict[str, Any]:
+        node_types = set(self.local_latencies.keys()) | set(self.cloud_latencies.keys())
+        return {
+            "node_stats": {nt.value: self.get_stats(nt) for nt in node_types},
+            "e2e_stats": self.get_end_to_end_stats(),
+            "comparison": self.get_comparison_data()
+        }
+
+
 @dataclass
 class ReasoningNode:
     """推理图中的节点"""
@@ -45,6 +169,9 @@ class ReasoningNode:
     data: Dict[str, Any]
     timestamp: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+    processing_time_ms: float = 0.0
+    model_type: ModelType = ModelType.LOCAL
+    network_condition: str = "GOOD"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,7 +180,10 @@ class ReasoningNode:
             "label": self.label,
             "data": self.data,
             "timestamp": self.timestamp,
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "processing_time_ms": self.processing_time_ms,
+            "model_type": self.model_type.value,
+            "network_condition": self.network_condition
         }
 
 
@@ -219,6 +349,8 @@ class DecisionTracer:
         self._node_mappings: Dict[str, Dict[str, str]] = {}  # 按用户ID存储节点映射
         self._lock_graph = threading.Lock()
         self._enabled = True
+        self._latency_stats: Dict[str, LatencyStats] = {}
+        self._active_timers: Dict[str, Dict[str, float]] = {}
 
     @classmethod
     def get_instance(cls) -> "DecisionTracer":
@@ -884,6 +1016,224 @@ class DecisionTracer:
                 ])
         
         return "\n".join(lines)
+
+    def start_latency_tracking(self, node_type: NodeType, model_type: ModelType,
+                               user_id: str = None) -> str:
+        """开始追踪某个节点的延迟
+
+        Args:
+            node_type: 节点类型
+            model_type: 模型类型
+            user_id: 用户ID
+
+        Returns:
+            追踪ID
+        """
+        user_key = user_id or "default"
+        if user_key not in self._active_timers:
+            self._active_timers[user_key] = {}
+        if user_key not in self._latency_stats:
+            self._latency_stats[user_key] = LatencyStats()
+
+        tracker_id = f"{node_type.value}_{time.time()}"
+        self._active_timers[user_key][node_type.value] = time.time()
+        return tracker_id
+
+    def end_latency_tracking(self, node_type: NodeType, model_type: ModelType,
+                            network_condition: str = "GOOD", user_id: str = None) -> Optional[LatencyRecord]:
+        """结束追踪某个节点的延迟
+
+        Args:
+            node_type: 节点类型
+            model_type: 模型类型
+            network_condition: 网络状况
+            user_id: 用户ID
+
+        Returns:
+            延迟记录
+        """
+        user_key = user_id or "default"
+        if user_key not in self._active_timers or node_type.value not in self._active_timers[user_key]:
+            return None
+        if user_key not in self._latency_stats:
+            self._latency_stats[user_key] = LatencyStats()
+
+        start_time = self._active_timers[user_key].pop(node_type.value)
+        end_time = time.time()
+        duration_ms = (end_time - start_time) * 1000
+
+        record = LatencyRecord(
+            node_type=node_type,
+            model_type=model_type,
+            start_time=start_time,
+            end_time=end_time,
+            duration_ms=duration_ms,
+            network_condition=network_condition
+        )
+
+        self._latency_stats[user_key].add_latency(node_type, model_type, duration_ms, network_condition)
+
+        if user_key in self._current_graphs:
+            graph = self._current_graphs[user_key]
+            for node in graph.nodes.values():
+                if node.node_type == node_type:
+                    node.processing_time_ms = duration_ms
+                    node.model_type = model_type
+                    node.network_condition = network_condition
+                    break
+
+        return record
+
+    def record_node_latency(self, node_type: NodeType, model_type: ModelType,
+                           duration_ms: float, network_condition: str = "GOOD",
+                           user_id: str = None) -> None:
+        """直接记录节点延迟
+
+        Args:
+            node_type: 节点类型
+            model_type: 模型类型
+            duration_ms: 延迟毫秒数
+            network_condition: 网络状况
+            user_id: 用户ID
+        """
+        user_key = user_id or "default"
+        if user_key not in self._latency_stats:
+            self._latency_stats[user_key] = LatencyStats()
+        self._latency_stats[user_key].add_latency(node_type, model_type, duration_ms, network_condition)
+
+    def get_latency_stats(self, user_id: str = None) -> Optional[Dict[str, Any]]:
+        """获取延迟统计
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            延迟统计数据
+        """
+        user_key = user_id or "default"
+        if user_key not in self._latency_stats:
+            return None
+        return self._latency_stats[user_key].to_dict()
+
+    def get_e2e_latency_report(self, user_id: str = None) -> str:
+        """生成端到端延迟报告
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            延迟报告字符串
+        """
+        user_key = user_id or "default"
+        if user_key not in self._latency_stats:
+            return "无可用延迟数据"
+
+        stats = self._latency_stats[user_key]
+        e2e = stats.get_end_to_end_stats()
+        comparison = stats.get_comparison_data()
+
+        lines = [
+            "# E2E 延迟性能报告",
+            "",
+            f"## 网络状况统计",
+            f"- GOOD: {e2e['network_conditions'].get('GOOD', 0)}",
+            f"- POOR: {e2e['network_conditions'].get('POOR', 0)}",
+            f"- 未知: {e2e['network_conditions'].get('UNKNOWN', 0)}",
+            "",
+            f"## 本地模型 E2E 延迟",
+            f"- 平均: {e2e['local_e2e']['avg_ms']:.2f} ms",
+            f"- 最小: {e2e['local_e2e']['min_ms']:.2f} ms",
+            f"- 最大: {e2e['local_e2e']['max_ms']:.2f} ms",
+            f"- P95: {e2e['local_e2e']['p95_ms']:.2f} ms",
+            f"- 样本数: {e2e['local_e2e']['total_samples']}",
+            "",
+            f"## 云端模型 E2E 延迟",
+            f"- 平均: {e2e['cloud_e2e']['avg_ms']:.2f} ms",
+            f"- 最小: {e2e['cloud_e2e']['min_ms']:.2f} ms",
+            f"- 最大: {e2e['cloud_e2e']['max_ms']:.2f} ms",
+            f"- P95: {e2e['cloud_e2e']['p95_ms']:.2f} ms",
+            f"- 样本数: {e2e['cloud_e2e']['total_samples']}",
+            "",
+            "## 各节点延迟对比 (本地 vs 云端)",
+            "",
+            "| 节点类型 | 本地平均(ms) | 云端平均(ms) | 额外延迟(ms) |",
+            "|----------|-------------|-------------|-------------|"
+        ]
+
+        for node_type, data in comparison.items():
+            lines.append(f"| {node_type} | {data['local_avg']:.2f} | {data['cloud_avg']:.2f} | {data['overhead_ms']:.2f} |")
+
+        if e2e['cloud_e2e']['avg_ms'] > 0 and e2e['local_e2e']['avg_ms'] > 0:
+            overhead_pct = ((e2e['cloud_e2e']['avg_ms'] - e2e['local_e2e']['avg_ms']) / e2e['local_e2e']['avg_ms']) * 100
+            lines.extend([
+                "",
+                f"**云端相对本地平均额外延迟: {overhead_pct:.1f}%**"
+            ])
+
+        return "\n".join(lines)
+
+    def generate_latency_comparison_chart(self, user_id: str = None) -> str:
+        """生成ASCII延迟对比图
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            ASCII图表字符串
+        """
+        user_key = user_id or "default"
+        if user_key not in self._latency_stats:
+            return "无可用延迟数据"
+
+        comparison = self._latency_stats[user_key].get_comparison_data()
+        if not comparison:
+            return "无可用延迟数据"
+
+        lines = ["\n# 延迟对比图 (本地 vs 云端)\n"]
+
+        max_val = 0
+        for data in comparison.values():
+            max_val = max(max_val, data['local_avg'], data['cloud_avg'])
+
+        if max_val == 0:
+            return "无可用延迟数据"
+
+        chart_width = 50
+        scale = chart_width / max_val
+
+        lines.append("延迟(ms) | " + "─" * chart_width + " |")
+        lines.append("")
+
+        for node_type, data in comparison.items():
+            local_bar = "█" * int(data['local_avg'] * scale)
+            cloud_bar = "▓" * int(data['cloud_avg'] * scale)
+
+            lines.append(f"{node_type[:20]:20s}")
+            lines.append(f"  本地: {local_bar} {data['local_avg']:.1f}ms")
+            lines.append(f"  云端: {cloud_bar} {data['cloud_avg']:.1f}ms")
+            if data['overhead_ms'] > 0:
+                lines.append(f"  额外: +{data['overhead_ms']:.1f}ms ({(data['overhead_ms']/data['local_avg']*100):.0f}%)")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def export_latency_json(self, user_id: str = None) -> str:
+        """导出延迟数据为JSON
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            JSON字符串
+        """
+        user_key = user_id or "default"
+        if user_key not in self._latency_stats:
+            return json.dumps({"error": "无可用延迟数据"})
+
+        return json.dumps({
+            "user_id": user_id,
+            "stats": self._latency_stats[user_key].to_dict()
+        }, ensure_ascii=False, indent=2)
 
     def enable(self) -> None:
         self._enabled = True
