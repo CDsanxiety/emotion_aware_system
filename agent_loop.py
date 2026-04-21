@@ -22,6 +22,8 @@ from autogen_integration import global_autogen_manager
 from memory_rag import LongTermMemory
 from utils import logger
 import vision
+from identity_manager import recognize_user
+from decision_tracer import DecisionTracer, NodeType, ModelType
 
 # 初始化CogVLM集成标志
 COGVLM_AVAILABLE = False
@@ -209,7 +211,6 @@ def _agent_worker(
     camera_index: int,
     stop_event: threading.Event,
 ) -> None:
-    cap = None
     vision_desc = ""
     presence = False
     last_vision_time = 0.0
@@ -237,14 +238,8 @@ def _agent_worker(
             create_cogvlm_integration = None
             COGVLM_AVAILABLE = False
     cogvlm_integration = create_cogvlm_integration() if COGVLM_AVAILABLE else None
-
-    try:
-        cap = cv2.VideoCapture(camera_index)
-        if not cap.isOpened():
-            cap = None
-            _safe_update_blackboard(blackboard, {"current_vision_desc": ""})
-    except Exception:
-        cap = None
+    # 初始化决策追踪器
+    decision_tracer = DecisionTracer.get_instance()
 
     try:
         while not stop_event.is_set():
@@ -252,98 +247,72 @@ def _agent_worker(
             now = start_time
 
             # 1. 获取当前观测
-            if cap is not None and (now - last_vision_time) >= vision_interval_sec:
+            if (now - last_vision_time) >= vision_interval_sec:
                 last_vision_time = now
+                cap = None
                 try:
-                    ok, frame = cap.read()
-                    if ok and frame is not None:
-                        # 2. 图像预处理与分析
-                        vr = vision.process_image(frame)
-                        vision_desc = (vr.get("description") or "").strip()
-                        presence = _infer_presence_from_vision(vision_desc)
-                        _safe_update_blackboard(
-                            blackboard,
-                            {
-                                "current_vision_desc": vision_desc,
-                                "user_presence": presence,
-                            },
-                        )
-                        
-                        # 3. 检测场景触发事件
-                        scene_trigger = detect_scene_triggers(vision_desc)
-                        if scene_trigger and _global_state.can_trigger_proactive():
-                            _global_state.last_proactive_time = time.time()
-                            logger.info(f"[场景触发] 检测到: {scene_trigger}")
+                    # 临时打开摄像头
+                    cap = cv2.VideoCapture(camera_index)
+                    if cap.isOpened():
+                        ok, frame = cap.read()
+                        if ok and frame is not None:
+                            # 1. 用户身份识别
+                            user_identity = recognize_user(face_image=frame)
+                            user_id = user_identity.user_id if user_identity else "unknown"
+                            user_name = user_identity.name if user_identity else "主人"
+                            user_type = user_identity.user_type.value if user_identity else "unknown"
                             
-                            # 构建场景触发的提示
-                            if scene_trigger == "主人回家了":
-                                prompt_text = "主人刚回家，用温暖的语气问候并欢迎主人。"
-                            elif scene_trigger == "主人看起来很累":
-                                prompt_text = "主人看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
-                            elif scene_trigger == "环境光线突然变暗":
-                                prompt_text = "环境光线突然变暗，询问主人是否需要开灯或其他帮助。"
-                            else:
-                                prompt_text = f"检测到场景: {scene_trigger}，用适当的语气回应。"
+                            # 2. 图像预处理与分析
+                            decision_tracer.start_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id)
+                            vr = vision.process_image(frame)
+                            decision_tracer.end_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id=user_id)
+                            vision_desc = (vr.get("description") or "").strip()
+                            presence = _infer_presence_from_vision(vision_desc)
                             
-                            # 执行主动关心动作
-                            res, audio_path = get_response(
-                                "neutral",
-                                prompt_text,
-                                enable_tts=enable_tts,
-                                vision_desc=vision_desc,
-                            )
+                            # 检查是否正在用户交互，如果是，则不更新黑板数据，避免状态冲突
+                            if not _global_state.is_interacting():
+                                _safe_update_blackboard(
+                                    blackboard,
+                                    {
+                                        "current_vision_desc": vision_desc,
+                                        "user_presence": presence,
+                                        "current_user_id": user_id,
+                                        "current_user_name": user_name,
+                                        "current_user_type": user_type,
+                                    },
+                                )
                             
-                            proactive_result = ProactiveCareResult(
-                                reply=res.get("reply", "") if isinstance(res, dict) else "",
-                                audio_path=audio_path,
-                                emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
-                                action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
-                            )
-                            
-                            # 发布主动关心到 ROS
-                            proactive_msg = {
-                                "type": "proactive_care",
-                                "reply": proactive_result.reply,
-                                "emotion": proactive_result.emotion,
-                                "action": proactive_result.action,
-                            }
-                            ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
-                            
-                            _global_state.set_pending_proactive(proactive_result)
-                            
-                            if on_proactive_output is not None:
-                                try:
-                                    on_proactive_output(proactive_result)
-                                except Exception as e:
-                                    print(f"主动关心输出处理失败: {e}")
-                        
-                        # 4. 检查长期记忆触发事件
-                        if presence:
-                            memory_trigger = check_memory_triggers()
-                            if memory_trigger and _global_state.can_trigger_proactive():
+                            # 3. 检测场景触发事件
+                            scene_trigger = detect_scene_triggers(vision_desc)
+                            if scene_trigger and _global_state.can_trigger_proactive():
                                 _global_state.last_proactive_time = time.time()
-                                logger.info(f"[记忆触发] 检测到: {memory_trigger}")
+                                logger.info(f"[场景触发] 检测到: {scene_trigger}")
                                 
-                                # 构建记忆触发的提示
-                                if memory_trigger == "今天是你生日":
-                                    prompt_text = "今天是主人的生日，播放生日快乐音乐并送上温馨的生日祝福。"
-                                    # 这里可以添加播放音乐的逻辑
+                                # 构建场景触发的提示
+                                if scene_trigger == "主人回家了":
+                                    prompt_text = f"{user_name}刚回家，用温暖的语气问候并欢迎{user_name}。"
+                                elif scene_trigger == "主人看起来很累":
+                                    prompt_text = f"{user_name}看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
+                                elif scene_trigger == "环境光线突然变暗":
+                                    prompt_text = f"环境光线突然变暗，询问{user_name}是否需要开灯或其他帮助。"
                                 else:
-                                    prompt_text = f"记忆触发: {memory_trigger}，用适当的语气回应。"
+                                    prompt_text = f"检测到场景: {scene_trigger}，用适当的语气回应{user_name}。"
                                 
                                 # 执行主动关心动作
+                                decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                                 res, audio_path = get_response(
-                                    "happy",
+                                    "neutral",
                                     prompt_text,
                                     enable_tts=enable_tts,
                                     vision_desc=vision_desc,
                                 )
+                                decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                                 
                                 proactive_result = ProactiveCareResult(
                                     reply=res.get("reply", "") if isinstance(res, dict) else "",
                                     audio_path=audio_path,
-                                    emotion=res.get("emotion", "happy") if isinstance(res, dict) else "happy",
-                                    action=res.get("action", "播放音乐") if isinstance(res, dict) else "播放音乐",
+                                    emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
+                                    action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
                                 )
                                 
                                 # 发布主动关心到 ROS
@@ -362,19 +331,79 @@ def _agent_worker(
                                         on_proactive_output(proactive_result)
                                     except Exception as e:
                                         print(f"主动关心输出处理失败: {e}")
+                            
+                            # 4. 检查长期记忆触发事件
+                            if presence:
+                                decision_tracer.start_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id)
+                                memory_trigger = check_memory_triggers()
+                                decision_tracer.end_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id=user_id)
+                                if memory_trigger and _global_state.can_trigger_proactive():
+                                    _global_state.last_proactive_time = time.time()
+                                    logger.info(f"[记忆触发] 检测到: {memory_trigger}")
+                                    
+                                    # 构建记忆触发的提示
+                                    if memory_trigger == "今天是你生日":
+                                        prompt_text = f"今天是{user_name}的生日，播放生日快乐音乐并送上温馨的生日祝福。"
+                                        # 这里可以添加播放音乐的逻辑
+                                    else:
+                                        prompt_text = f"记忆触发: {memory_trigger}，用适当的语气回应{user_name}。"
+                                    
+                                    # 执行主动关心动作
+                                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
+                                    res, audio_path = get_response(
+                                        "happy",
+                                        prompt_text,
+                                        enable_tts=enable_tts,
+                                        vision_desc=vision_desc,
+                                    )
+                                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
+                                    
+                                    proactive_result = ProactiveCareResult(
+                                        reply=res.get("reply", "") if isinstance(res, dict) else "",
+                                        audio_path=audio_path,
+                                        emotion=res.get("emotion", "happy") if isinstance(res, dict) else "happy",
+                                        action=res.get("action", "播放音乐") if isinstance(res, dict) else "播放音乐",
+                                    )
+                                    
+                                    # 发布主动关心到 ROS
+                                    proactive_msg = {
+                                        "type": "proactive_care",
+                                        "reply": proactive_result.reply,
+                                        "emotion": proactive_result.emotion,
+                                        "action": proactive_result.action,
+                                    }
+                                    ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                                    
+                                    _global_state.set_pending_proactive(proactive_result)
+                                    
+                                    if on_proactive_output is not None:
+                                        try:
+                                            on_proactive_output(proactive_result)
+                                        except Exception as e:
+                                            print(f"主动关心输出处理失败: {e}")
                 except Exception as e:
                     print(f"[agent_loop] 场景检测出错: {e}")
                     traceback.print_exc()
+                finally:
+                    # 无论如何都释放摄像头
+                    if cap is not None:
+                        try:
+                            cap.release()
+                        except Exception:
+                            pass
 
             # 3. 语音观测
             user_text = ""
             try:
+                decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id)
                 user_text = recognize_speech(
                     timeout=stt_timeout_sec,
                     phrase_time_limit=stt_phrase_time_limit_sec,
                 )
+                decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
             except Exception:
                 user_text = ""
+                decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
 
             if stop_event.is_set():
                 break
@@ -394,7 +423,9 @@ def _agent_worker(
 
                 # 5. 执行动作（使用 AutoGen 和 CogVLM 集成）
                 # 使用 AutoGen 分析情感和规划动作
+                decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                 autogen_result = autogen_integration.analyze_emotion_and_plan_action(user_text, vision_desc)
+                decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                 emotion = autogen_result.get("emotion", "neutral")
                 action = autogen_result.get("action", "无动作")
                 confidence = autogen_result.get("confidence", 1.0)
@@ -405,12 +436,14 @@ def _agent_worker(
                 if autogen_result.get("needs_query", False):
                     logger.info(f"[不确定性] 置信度: {confidence:.2f}，进入询问模式")
                     inquiry_text = action
+                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                     res, audio_path = get_response(
                         emotion,
                         inquiry_text,
                         enable_tts=enable_tts,
                         vision_desc=vision_desc,
                     )
+                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                     _safe_update_blackboard(
                         blackboard,
                         {
@@ -424,18 +457,32 @@ def _agent_worker(
                     continue
 
                 # 如果有图像，使用 CogVLM 进行多模态分析
-                if cap is not None and COGVLM_AVAILABLE and cogvlm_integration:
+                if COGVLM_AVAILABLE and cogvlm_integration:
+                    cap = None
                     try:
-                        ok, frame = cap.read()
-                        if ok and frame is not None:
-                            from PIL import Image
-                            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                            cogvlm_result = cogvlm_integration.process_multimodal(image, user_text)
-                            if cogvlm_result.get("success"):
-                                emotion = cogvlm_result.get("emotion", emotion)
-                                action = cogvlm_result.get("action", action)
+                        # 临时打开摄像头
+                        cap = cv2.VideoCapture(camera_index)
+                        if cap.isOpened():
+                            ok, frame = cap.read()
+                            if ok and frame is not None:
+                                from PIL import Image
+                                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                                decision_tracer.start_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id)
+                                cogvlm_result = cogvlm_integration.process_multimodal(image, user_text)
+                                decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
+                                if cogvlm_result.get("success"):
+                                    emotion = cogvlm_result.get("emotion", emotion)
+                                    action = cogvlm_result.get("action", action)
                     except Exception as e:
                         print(f"CogVLM 处理失败: {e}")
+                        decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
+                    finally:
+                        # 无论如何都释放摄像头
+                        if cap is not None:
+                            try:
+                                cap.release()
+                            except Exception:
+                                pass
                 
                 # 构建 VLA 观测
                 from vla_integration import VLAObservation
@@ -445,16 +492,20 @@ def _agent_worker(
                     timestamp=ts
                 )
                 # 预测动作
+                decision_tracer.start_latency_tracking(NodeType.ACTION_SELECTION, ModelType.LOCAL, user_id)
                 prediction = vla_integration.predict_action(vla_obs, instruction="响应用户需求")
                 # 执行动作
                 execution_result = vla_integration.execute_action(prediction)
+                decision_tracer.end_latency_tracking(NodeType.ACTION_SELECTION, ModelType.LOCAL, user_id=user_id)
                 
+                decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                 res, audio_path = get_response(
                     emotion,
                     user_text,
                     enable_tts=enable_tts,
                     vision_desc=vision_desc,
                 )
+                decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                 _safe_update_blackboard(
                     blackboard,
                     {
@@ -489,30 +540,48 @@ def _agent_worker(
 
                     # 7. 执行主动关心动作
                     # 使用 AutoGen 分析场景和规划动作
+                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                     autogen_result = autogen_integration.analyze_emotion_and_plan_action("", vision_desc)
+                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                     emotion = autogen_result.get("emotion", "neutral")
                     action = autogen_result.get("action", "无动作")
                     
                     # 如果有图像，使用 CogVLM 进行多模态分析
-                    if cap is not None and COGVLM_AVAILABLE and cogvlm_integration:
+                    if COGVLM_AVAILABLE and cogvlm_integration:
+                        cap = None
                         try:
-                            ok, frame = cap.read()
-                            if ok and frame is not None:
-                                from PIL import Image
-                                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                                cogvlm_result = cogvlm_integration.process_multimodal(image, "分析当前场景，用户需要什么？")
-                                if cogvlm_result.get("success"):
-                                    emotion = cogvlm_result.get("emotion", emotion)
-                                    action = cogvlm_result.get("action", action)
+                            # 临时打开摄像头
+                            cap = cv2.VideoCapture(camera_index)
+                            if cap.isOpened():
+                                ok, frame = cap.read()
+                                if ok and frame is not None:
+                                    from PIL import Image
+                                    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                                    decision_tracer.start_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id)
+                                    cogvlm_result = cogvlm_integration.process_multimodal(image, "分析当前场景，用户需要什么？")
+                                    decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
+                                    if cogvlm_result.get("success"):
+                                        emotion = cogvlm_result.get("emotion", emotion)
+                                        action = cogvlm_result.get("action", action)
                         except Exception as e:
                             print(f"CogVLM 处理失败: {e}")
+                            decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
+                        finally:
+                            # 无论如何都释放摄像头
+                            if cap is not None:
+                                try:
+                                    cap.release()
+                                except Exception:
+                                    pass
                     
+                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                     res, audio_path = get_response(
                         emotion,
                         prompt_text,
                         enable_tts=enable_tts,
                         vision_desc=vision_desc,
                     )
+                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
 
                     proactive_result = ProactiveCareResult(
                         reply=res.get("reply", "") if isinstance(res, dict) else "",
@@ -563,11 +632,6 @@ def _agent_worker(
         print(f"[agent_loop] worker crashed: {e}")
         traceback.print_exc()
     finally:
-        if cap is not None:
-            try:
-                cap.release()
-            except Exception:
-                pass
         _global_state.set_interacting(False)
 
 

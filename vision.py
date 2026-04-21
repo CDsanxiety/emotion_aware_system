@@ -113,9 +113,13 @@ def _fallback_visual_description(frame: np.ndarray) -> str:
         detector = _get_fer_detector()
         emotions = detector.detect_emotions(frame)
         emotion_str = ""
-        if emotions:
-            best_emotion = max(emotions[0]["emotions"], key=emotions[0]["emotions"].get)
-            emotion_str = f"，侦测到人物情绪可能偏向 {best_emotion}"
+        if emotions and emotions[0].get("emotions"):
+            try:
+                best_emotion = max(emotions[0]["emotions"], key=emotions[0]["emotions"].get)
+                emotion_str = f"，侦测到人物情绪可能偏向 {best_emotion}"
+            except ValueError:
+                # emotions[0]["emotions"] 为空字典时，max() 会抛出异常
+                logger.warning("检测到人脸但未识别出表情")
         
         return f"（本地感知模式）{light_status}，{complexity}{emotion_str}。建议以此作为基础互动。"
     except Exception as e:

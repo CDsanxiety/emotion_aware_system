@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 from utils import logger
+from safety_guardrails import get_safety_guardrails, SafetyCheckResult
 
 
 class LEDColor(Enum):
@@ -356,6 +357,12 @@ class PhysicalExpressionController:
         self._lock = threading.Lock()
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # 运动序列插值器相关
+        self._motion_sequence = []
+        self._sequence_start_time = 0.0
+        self._sequence_duration = 0.0
+        # 安全护栏
+        self.safety_guardrails = get_safety_guardrails()
 
     def start(self):
         """启动物理表达控制器"""
@@ -393,7 +400,13 @@ class PhysicalExpressionController:
             d: Dominance (-1.0 到 1.0)
         """
         with self._lock:
+            # 保存当前速度作为初始速度
+            initial_speed = self.current_expression.head_pose.speed if self.current_expression.head_pose else 1.0
+            # 更新表达式
             self.current_expression = self.mapper.map_pad_to_expression(p, a, d)
+            # 生成运动序列
+            target_speed = self.current_expression.head_pose.speed if self.current_expression.head_pose else 1.0
+            self.generate_motion_sequence(initial_speed, target_speed, duration=1.0)
 
     def _update_loop(self):
         """更新循环：平滑过渡并发布到 ROS"""
@@ -446,12 +459,105 @@ class PhysicalExpressionController:
         """平滑过渡数值"""
         return current + (target - current) * factor
 
+    def generate_motion_sequence(self, initial_speed: float, target_speed: float, duration: float = 1.0):
+        """
+        生成运动序列
+
+        参数:
+            initial_speed: 初始速度
+            target_speed: 目标速度
+            duration: 序列持续时间 (秒)
+        """
+        expr = self.current_expression
+        speed_profile = self.mapper.calculate_deceleration_profile(
+            initial_speed,
+            target_speed,
+            expr.deceleration_profile,
+            expr.deceleration
+        )
+        
+        # 计算每个速度点的时间戳
+        self._motion_sequence = []
+        step_duration = duration / len(speed_profile)
+        
+        for i, speed in enumerate(speed_profile):
+            timestamp = i * step_duration
+            self._motion_sequence.append((timestamp, speed))
+        
+        self._sequence_start_time = time.time()
+        self._sequence_duration = duration
+
+    def _update_loop(self):
+        """更新循环：平滑过渡并发布到 ROS"""
+        while not self._stop_event.is_set():
+            try:
+                self._smooth_transition()
+                self._apply_expression()
+                # 处理运动序列
+                self._process_motion_sequence()
+            except Exception as e:
+                logger.error(f"[物理表达] 更新异常: {e}")
+
+            self._stop_event.wait(0.1)  # 10Hz 更新频率
+
+    def _process_motion_sequence(self):
+        """处理运动序列，分步发布速度指令"""
+        if not self._motion_sequence or not self.ros_manager or not self.ros_manager.is_connected:
+            return
+
+        current_time = time.time()
+        elapsed = current_time - self._sequence_start_time
+
+        # 找到当前应该执行的速度点
+        current_speed = None
+        for timestamp, speed in self._motion_sequence:
+            if elapsed >= timestamp:
+                current_speed = speed
+            else:
+                break
+
+        if current_speed is not None:
+            # 安全检查：限制速度
+            safe_speed = max(0.5, min(1.2, current_speed))
+            
+            # 构建运动控制消息
+            motion_msg = {
+                "type": "motion_control",
+                "speed": safe_speed,
+                "profile": self.current_expression.deceleration_profile,
+                "timestamp": current_time
+            }
+
+            # 验证动作安全性
+            action_context = {
+                "action": "motion_control",
+                "speed": safe_speed
+            }
+            safety_result = self.safety_guardrails.validate_action("motion_control", action_context)
+
+            if safety_result.passed:
+                try:
+                    self.ros_manager.publish_action(motion_msg)
+                    logger.debug(f"[物理表达] 已发布速度指令: {safe_speed:.2f}")
+                except Exception as e:
+                    logger.error(f"[物理表达] 发布速度指令失败: {e}")
+            else:
+                logger.warning(f"[物理表达] 运动指令被安全护栏阻止: {safety_result.blocked_reason}")
+                logger.warning(f"[物理表达] 风险因素: {safety_result.risk_factors}")
+
+        # 序列结束，清空
+        if elapsed >= self._sequence_duration:
+            self._motion_sequence = []
+
     def _apply_expression(self):
         """应用当前表达式到硬件"""
         if not self.ros_manager or not self.ros_manager.is_connected:
             return
 
         expr = self.current_expression
+
+        # 安全检查：限制物理输出参数
+        self._enforce_safety_limits(expr)
 
         # 构建 ROS 消息
         expression_msg = {
@@ -479,13 +585,50 @@ class PhysicalExpressionController:
             }
         }
 
-        try:
-            self.ros_manager.publish_action(expression_msg)
-            logger.debug(f"[物理表达] 已发布: LED={expr.led_color}, 动画={expr.led_animation}, "
-                        f"加速度={expr.acceleration:.2f}, 减速度={expr.deceleration:.2f}, "
-                        f"减速曲线={expr.deceleration_profile}")
-        except Exception as e:
-            logger.error(f"[物理表达] 发布失败: {e}")
+        # 验证动作安全性
+        action_context = {
+            "action": "physical_expression",
+            "acceleration": expr.acceleration,
+            "max_speed": expr.max_speed,
+            "jerk": expr.jerk
+        }
+        safety_result = self.safety_guardrails.validate_action("physical_expression", action_context)
+
+        if safety_result.passed:
+            try:
+                self.ros_manager.publish_action(expression_msg)
+                logger.debug(f"[物理表达] 已发布: LED={expr.led_color}, 动画={expr.led_animation}, "
+                            f"加速度={expr.acceleration:.2f}, 减速度={expr.deceleration:.2f}, "
+                            f"减速曲线={expr.deceleration_profile}")
+            except Exception as e:
+                logger.error(f"[物理表达] 发布失败: {e}")
+        else:
+            logger.warning(f"[物理表达] 动作被安全护栏阻止: {safety_result.blocked_reason}")
+            logger.warning(f"[物理表达] 风险因素: {safety_result.risk_factors}")
+
+    def _enforce_safety_limits(self, expr: PhysicalExpression):
+        """
+        强制执行安全限制，确保物理输出不超过硬件负载上限
+        """
+        # 限制加速度
+        expr.acceleration = max(0.1, min(1.5, expr.acceleration))
+        
+        # 限制减速度
+        expr.deceleration = max(0.1, min(1.8, expr.deceleration))
+        
+        # 限制最大速度
+        expr.max_speed = max(0.5, min(1.2, expr.max_speed))
+        
+        # 限制抖动率
+        expr.jerk = max(0.0, min(0.7, expr.jerk))
+        
+        # 限制头部动作速度
+        if expr.head_pose:
+            expr.head_pose.speed = max(0.5, min(1.5, expr.head_pose.speed))
+            expr.head_pose.nod_frequency = max(0.0, min(2.0, expr.head_pose.nod_frequency))
+        
+        # 限制 LED 亮度
+        expr.led_brightness = max(0.2, min(0.9, expr.led_brightness))
 
     def get_expression_description(self) -> str:
         """获取当前物理表达的描述（用于调试）"""

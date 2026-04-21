@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from utils import logger
+from llm_api import call_llm
 
 
 @dataclass
@@ -343,59 +344,53 @@ class ExecutionAgent:
         生成最终回复
         返回: (reply, emotion, action, music_type)
         """
-        music_type = None
-        action = "none"
+        # 构建上下文
+        context = f"""
+        感知信息:
+        - 场景: {perception.scene_context}
+        - 提取的细节: {', '.join(perception.extracted_details) or '无'}
+        - 潜在问题: {', '.join(perception.potential_issues) or '无'}
+        - 原始情绪: {original_emotion}
+        - 原始音频: {perception.raw_audio}
+        - 原始视觉: {perception.raw_vision}
+        
+        记忆信息:
+        - 相关记忆: {memory.relevant_memories[0][:100] if memory.relevant_memories else '无'}
+        - 用户健康状态: {memory.health_status}
+        - 用户画像: {list(memory.user_profile.keys()) or '普通'}
+        - 最近情绪: {', '.join(memory.recent_emotions) or '无'}
+        - 特殊日期: {', '.join(memory.special_dates) or '无'}
+        
+        抑制规则:
+        - {', '.join(should_suppress) or '无'}
+        """
 
-        if memory.special_dates and any("生日" in d for d in memory.special_dates):
-            return (
-                "生日快乐，亲爱的主人！🎂 祝福你新的一岁万事如意！今天我特意准备了一首欢快的音乐陪你庆祝！",
-                "happy",
-                "play_music",
-                "music_happy"
-            )
+        # 构建用户文本，用于调用 LLM
+        user_text = perception.raw_audio or "用户没有说话"
+        vision_desc = perception.raw_vision or "无视觉信息"
 
-        if "主人看起来累" in perception.potential_issues or memory.health_status == "需要关心":
-            if memory.health_status == "需要关心" or memory.health_status == "恢复中":
-                reply = "我注意到你看起来有点累，身体还好吗？如果不舒服一定要好好休息哦，需要我放一些舒缓的音乐帮你放松吗？"
-                emotion = "caring"
+        try:
+            # 调用 LLM 生成回复
+            llm_result = call_llm(original_emotion, user_text, vision_desc)
+            
+            # 解析 LLM 回复
+            if "execution" in llm_result:
+                reply = llm_result["execution"].get("reply", "你好呀！有什么我可以帮你的吗？")
+                emotion = llm_result["execution"].get("emotion", original_emotion if original_emotion != "neutral" else "friendly")
+                action = llm_result["execution"].get("action", "none")
+                music_type = llm_result["execution"].get("music_type", None)
             else:
-                reply = "主人看起来有点疲惫呢，要不要先休息一下？我可以放点轻松的音乐给你舒缓一下~"
-                emotion = "caring"
-            action = "comfort"
-            music_type = "music_relax"
-
-        elif memory.health_status == "恢复中":
-            reply = "感冒好点了吗？要多喝水好好休息哦~有什么需要帮忙的尽管说！"
-            emotion = "caring"
-            action = "care"
-
-        elif perception.scene_context == "主人刚回家":
-            reply = "欢迎回家！今天辛苦了，想放松一下吗？我可以给你放点音乐~"
-            emotion = "happy"
-            action = "greet"
-            music_type = "music_welcome"
-
-        elif perception.scene_context == "工作状态" and "工作繁忙" in memory.user_profile:
-            reply = "工作忙要注意休息哦！眼睛累了就看看远处，我给你准备了些提神的音乐~"
-            emotion = "supportive"
-            action = "support"
-            music_type = "music_energizing"
-
-        elif any("光线" in issue for issue in perception.potential_issues):
-            reply = "光线有点暗呢，要不要我帮你开灯？或者放点柔和的音乐营造氛围？"
-            emotion = "helpful"
-            action = "assist"
-
-        elif memory.user_profile.get("心情不好"):
-            reply = "感觉你今天心情一般...要不要聊聊？或者我放点你喜欢的音乐？"
-            emotion = "empathetic"
-            action = "comfort"
-            music_type = "music_comfort"
-
-        else:
+                reply = llm_result.get("reply", "你好呀！有什么我可以帮你的吗？")
+                emotion = llm_result.get("emotion", original_emotion if original_emotion != "neutral" else "friendly")
+                action = llm_result.get("action", "none")
+                music_type = None
+        except Exception as e:
+            logger.error(f"[{self.name}] LLM 调用失败: {e}")
+            # 降级到默认回复
             reply = "你好呀！有什么我可以帮你的吗？"
             emotion = original_emotion if original_emotion != "neutral" else "friendly"
             action = "interact"
+            music_type = None
 
         return reply, emotion, action, music_type
 

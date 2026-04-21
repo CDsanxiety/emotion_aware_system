@@ -18,6 +18,7 @@ from memory_rag import LongTermMemory
 from pad_model import PADEmotionEngine
 from multi_agent import create_multi_agent_coordinator, MultiAgentCoordinator
 from physical_expression import get_expression_controller
+from decision_tracer import DecisionTracer, NodeType, ModelType
 
 load_dotenv()
 
@@ -117,15 +118,27 @@ def call_llm(emotion: str, user_text: str, vision_desc: str = "", prompt_file: s
     if USE_MOCK_LLM or not client:
         return {"emotion": emotion, "action": "none", "reply": "（本地模式）我收到啦。"}
 
+    # 初始化决策追踪器
+    decision_tracer = DecisionTracer.get_instance()
+
     try:
+        # 开始延迟追踪
+        decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
+        
         # 1. 记忆检索 (RAG)
         current_context = f"视觉: {vision_desc}\n语音: {user_text}\n情绪: {emotion}"
         memory_recall = _memory.recall(current_context)
         
-        with open(prompt_file, "r", encoding="utf-8") as f:
-            system_prompt = f.read().strip() + "\n" + _EMPATHY_VISION_SUFFIX
-            if memory_recall:
-                system_prompt += f"\n\n## 历史记忆参考 (Memory Recall):\n{memory_recall}"
+        # 缓存 prompt 文件内容，避免每次调用都重新读取
+        global _cached_system_prompt
+        if _cached_system_prompt is None:
+            with open(prompt_file, "r", encoding="utf-8") as f:
+                _cached_system_prompt = f.read().strip()
+        
+        # 构建系统提示词
+        system_prompt = _cached_system_prompt + "\n" + _EMPATHY_VISION_SUFFIX
+        if memory_recall:
+            system_prompt += f"\n\n## 历史记忆参考 (Memory Recall):\n{memory_recall}"
 
         messages = [{"role": "system", "content": system_prompt}] + list(_session_memory) + [{"role": "user", "content": user_content}]
 
@@ -148,9 +161,14 @@ def call_llm(emotion: str, user_text: str, vision_desc: str = "", prompt_file: s
         reply_text = result.get("execution", {}).get("reply", "...") if "execution" in result else result.get("reply", "...")
         _append_turn(user_content, reply_text)
         
+        # 结束延迟追踪
+        decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
+        
         return result
 
     except Exception as e:
+        # 结束延迟追踪（异常情况）
+        decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
         logger.error(f"LLM 链路异常: {e}")
         return {"emotion": "neutral", "action": "none", "reply": "抱歉，我刚才走神了，能再说一遍吗？"}
 
@@ -203,7 +221,13 @@ def get_response_with_multi_agent(
     if not USE_MULTI_AGENT:
         return get_response(face_emotion, voice_text, enable_tts, vision_desc)
 
+    # 初始化决策追踪器
+    decision_tracer = DecisionTracer.get_instance()
+
     try:
+        # 开始延迟追踪
+        decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
+        
         # 确保物理表达控制器已初始化
         _get_expression_controller()
 
@@ -236,6 +260,10 @@ def get_response_with_multi_agent(
             }
         }
 
+        # 更新会话记忆（修复会话失忆问题）
+        user_content = _build_user_content(face_emotion, voice_text, vision_desc)
+        _append_turn(user_content, reply_text)
+
         # 长期记忆存储
         if voice_text:
             _memory.save_memory(voice_text, reply_text, emotion_tag)
@@ -266,9 +294,14 @@ def get_response_with_multi_agent(
             if music_type:
                 logger.info(f"[多代理] 建议播放音乐: {music_type}")
 
+        # 结束延迟追踪
+        decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
+        
         return result, audio_path
 
     except Exception as e:
+        # 结束延迟追踪（异常情况）
+        decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id="unknown")
         logger.error(f"[多代理] Agentic Reasoning 出错: {e}")
         import traceback
         traceback.print_exc()

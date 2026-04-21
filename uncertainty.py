@@ -322,13 +322,15 @@ class UncertaintyManager:
         self,
         vision_evidence: EvidenceResult,
         audio_evidence: EvidenceResult,
-        text_evidence: EvidenceResult = None
+        text_evidence: EvidenceResult = None,
+        vision_brightness: float = 100.0,
+        audio_noise_level: float = 0.0
     ) -> Dict[str, Any]:
         """
         解决多模态冲突
         """
         return self.conflict_resolver.resolve_conflict(
-            vision_evidence, audio_evidence, text_evidence
+            vision_evidence, audio_evidence, text_evidence, vision_brightness, audio_noise_level
         )
 
     def handle_specific_conflict(
@@ -336,13 +338,15 @@ class UncertaintyManager:
         conflict_type: str,
         vision_evidence: EvidenceResult,
         audio_evidence: EvidenceResult,
-        text_evidence: EvidenceResult = None
+        text_evidence: EvidenceResult = None,
+        vision_brightness: float = 100.0,
+        audio_noise_level: float = 0.0
     ) -> Dict[str, Any]:
         """
         处理特定类型的冲突
         """
         return self.conflict_resolver.handle_specific_conflict(
-            conflict_type, vision_evidence, audio_evidence, text_evidence
+            conflict_type, vision_evidence, audio_evidence, text_evidence, vision_brightness, audio_noise_level
         )
 
     def should_ask_question(self) -> bool:
@@ -400,6 +404,12 @@ class ModalConflictResolver:
             "audio": 0.6,   # 音频识别的基础可靠性
             "text": 0.8     # 文本识别的基础可靠性
         }
+        # 基础可靠性（用于动态调整时的参考）
+        self.base_reliability = {
+            "vision": 0.7,
+            "audio": 0.6,
+            "text": 0.8
+        }
         
         # 情绪-模态关联度
         self.emotion_modality_relevance = {
@@ -418,9 +428,61 @@ class ModalConflictResolver:
             "audio_vs_text": 0.2     # 音频与文本冲突的权重
         }
 
+    def adjust_vision_reliability(self, brightness: float) -> float:
+        """
+        根据图像亮度调整视觉可靠性权重
+
+        参数:
+            brightness: 图像平均亮度 (0-255)
+
+        返回:
+            float: 调整后的视觉可靠性权重
+        """
+        # 亮度阈值设置
+        BRIGHT_THRESHOLD = 80
+        DARK_THRESHOLD = 30
+        
+        if brightness > BRIGHT_THRESHOLD:
+            # 光线充足，使用基础可靠性
+            return self.base_reliability["vision"]
+        elif brightness < DARK_THRESHOLD:
+            # 光线昏暗，大幅降低视觉可靠性
+            return 0.2
+        else:
+            # 光线适中，线性调整
+            ratio = (brightness - DARK_THRESHOLD) / (BRIGHT_THRESHOLD - DARK_THRESHOLD)
+            return 0.2 + (self.base_reliability["vision"] - 0.2) * ratio
+
+    def adjust_audio_reliability(self, noise_level: float) -> float:
+        """
+        根据环境噪声水平调整音频可靠性权重
+
+        参数:
+            noise_level: 噪声水平 (0-1)
+
+        返回:
+            float: 调整后的音频可靠性权重
+        """
+        # 噪声水平阈值设置
+        QUIET_THRESHOLD = 0.3
+        NOISY_THRESHOLD = 0.7
+        
+        if noise_level < QUIET_THRESHOLD:
+            # 环境安静，使用基础可靠性
+            return self.base_reliability["audio"]
+        elif noise_level > NOISY_THRESHOLD:
+            # 环境嘈杂，大幅降低音频可靠性
+            return 0.3
+        else:
+            # 噪声适中，线性调整
+            ratio = (NOISY_THRESHOLD - noise_level) / (NOISY_THRESHOLD - QUIET_THRESHOLD)
+            return 0.3 + (self.base_reliability["audio"] - 0.3) * ratio
+
     def resolve_conflict(self, vision_evidence: EvidenceResult, 
                        audio_evidence: EvidenceResult, 
-                       text_evidence: EvidenceResult = None) -> Dict[str, Any]:
+                       text_evidence: EvidenceResult = None, 
+                       vision_brightness: float = 100.0, 
+                       audio_noise_level: float = 0.0) -> Dict[str, Any]:
         """
         解决多模态冲突
 
@@ -428,12 +490,29 @@ class ModalConflictResolver:
             vision_evidence: 视觉识别的证据结果
             audio_evidence: 音频识别的证据结果
             text_evidence: 文本识别的证据结果（可选）
+            vision_brightness: 图像平均亮度 (0-255)
+            audio_noise_level: 环境噪声水平 (0-1)
 
         返回:
             Dict: 解决结果，包含最终情绪、置信度和冲突分析
         """
+        # 动态调整模态可靠性
+        adjusted_vision_reliability = self.adjust_vision_reliability(vision_brightness)
+        adjusted_audio_reliability = self.adjust_audio_reliability(audio_noise_level)
+        
+        # 临时覆盖模态可靠性进行计算
+        original_vision_reliability = self.modality_reliability["vision"]
+        original_audio_reliability = self.modality_reliability["audio"]
+        
+        self.modality_reliability["vision"] = adjusted_vision_reliability
+        self.modality_reliability["audio"] = adjusted_audio_reliability
+        
         # 计算各模态的贝叶斯权重
         weights = self._calculate_bayesian_weights(vision_evidence, audio_evidence, text_evidence)
+        
+        # 恢复原始模态可靠性
+        self.modality_reliability["vision"] = original_vision_reliability
+        self.modality_reliability["audio"] = original_audio_reliability
         
         # 计算加权后的情绪得分
         emotion_scores = self._calculate_emotion_scores(
@@ -449,12 +528,18 @@ class ModalConflictResolver:
             vision_evidence, audio_evidence, text_evidence, weights
         )
         
+        # 添加环境因素分析到推理过程
+        reasoning = self._generate_reasoning(weights, emotion_scores, conflict_analysis)
+        reasoning += f"\n环境因素分析:"
+        reasoning += f"\n  - 视觉亮度: {vision_brightness:.1f} (可靠性调整: {adjusted_vision_reliability:.2f})"
+        reasoning += f"\n  - 环境噪声: {audio_noise_level:.2f} (可靠性调整: {adjusted_audio_reliability:.2f})"
+        
         return {
             "final_emotion": final_emotion,
             "final_confidence": final_confidence,
             "weights": weights,
             "conflict_analysis": conflict_analysis,
-            "reasoning": self._generate_reasoning(weights, emotion_scores, conflict_analysis)
+            "reasoning": reasoning
         }
 
     def _calculate_bayesian_weights(self, vision_evidence: EvidenceResult, 
@@ -605,7 +690,9 @@ class ModalConflictResolver:
     def handle_specific_conflict(self, conflict_type: str, 
                                vision_evidence: EvidenceResult, 
                                audio_evidence: EvidenceResult, 
-                               text_evidence: EvidenceResult = None) -> Dict[str, Any]:
+                               text_evidence: EvidenceResult = None, 
+                               vision_brightness: float = 100.0, 
+                               audio_noise_level: float = 0.0) -> Dict[str, Any]:
         """
         处理特定类型的冲突
         """
@@ -645,7 +732,7 @@ class ModalConflictResolver:
             }
         
         # 默认冲突处理
-        return self.resolve_conflict(vision_evidence, audio_evidence, text_evidence)
+        return self.resolve_conflict(vision_evidence, audio_evidence, text_evidence, vision_brightness, audio_noise_level)
 
 
 # 全局多模态冲突解决器

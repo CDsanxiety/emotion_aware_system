@@ -220,6 +220,14 @@ class IdentityManager:
         
         # 保存人脸数据
         face_path = os.path.join(self.face_data_dir, f"{user_id}.jpg")
+        
+        # 重名检查和备份
+        if os.path.exists(face_path):
+            # 备份原文件
+            backup_path = os.path.join(self.face_data_dir, f"{user_id}_{int(time.time())}_backup.jpg")
+            os.rename(face_path, backup_path)
+            logger.warning(f"用户 {user_id} 的人脸数据已存在，已备份到 {backup_path}")
+        
         cv2.imwrite(face_path, face_roi)
         
         # 更新人脸识别模型
@@ -234,6 +242,14 @@ class IdentityManager:
         
         # 保存人脸特征
         feature_path = os.path.join(self.face_data_dir, f"{user_id}.npy")
+        
+        # 重名检查和备份
+        if os.path.exists(feature_path):
+            # 备份原文件
+            backup_path = os.path.join(self.face_data_dir, f"{user_id}_{int(time.time())}_backup.npy")
+            os.rename(feature_path, backup_path)
+            logger.warning(f"用户 {user_id} 的人脸特征数据已存在，已备份到 {backup_path}")
+        
         np.save(feature_path, face_feature)
         
         # 更新内存中的特征
@@ -244,6 +260,14 @@ class IdentityManager:
         face_roi = face_image[y:y+h, x:x+w]
         face_roi = cv2.resize(face_roi, (100, 100))
         face_path = os.path.join(self.face_data_dir, f"{user_id}.jpg")
+        
+        # 重名检查和备份
+        if os.path.exists(face_path):
+            # 备份原文件
+            backup_path = os.path.join(self.face_data_dir, f"{user_id}_{int(time.time())}_backup.jpg")
+            os.rename(face_path, backup_path)
+            logger.warning(f"用户 {user_id} 的人脸图像数据已存在，已备份到 {backup_path}")
+        
         cv2.imwrite(face_path, face_roi)
     
     def _register_voice(self, user_id: str, audio: np.ndarray, sample_rate: int):
@@ -257,6 +281,14 @@ class IdentityManager:
         
         # 保存声纹特征
         feature_path = os.path.join(self.voice_data_dir, f"{user_id}.npy")
+        
+        # 重名检查和备份
+        if os.path.exists(feature_path):
+            # 备份原文件
+            backup_path = os.path.join(self.voice_data_dir, f"{user_id}_{int(time.time())}_backup.npy")
+            os.rename(feature_path, backup_path)
+            logger.warning(f"用户 {user_id} 的声纹数据已存在，已备份到 {backup_path}")
+        
         np.save(feature_path, feature)
         
         # 更新内存中的特征
