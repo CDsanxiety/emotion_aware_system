@@ -218,6 +218,8 @@ def _agent_worker(
     ros_publish_interval = 2.0  # 每 2 秒发布一次状态
     control_frequency = 10.0  # 控制频率 10Hz
     control_interval = 1.0 / control_frequency
+    last_stt_time = 0.0
+    stt_interval = 1.0  # 语音检测间隔，避免频繁占用麦克风
 
     # 初始化 ROS 桥接
     ros_bridge = get_ros_bridge()
@@ -394,16 +396,19 @@ def _agent_worker(
 
             # 3. 语音观测
             user_text = ""
-            try:
-                decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id)
-                user_text = recognize_speech(
-                    timeout=stt_timeout_sec,
-                    phrase_time_limit=stt_phrase_time_limit_sec,
-                )
-                decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
-            except Exception:
-                user_text = ""
-                decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
+            # 只有在用户未交互且达到语音检测间隔时才进行语音识别
+            if not _global_state.is_interacting() and (now - last_stt_time) >= stt_interval:
+                try:
+                    decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id)
+                    user_text = recognize_speech(
+                        timeout=stt_timeout_sec,
+                        phrase_time_limit=stt_phrase_time_limit_sec,
+                    )
+                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
+                    last_stt_time = now  # 更新语音检测时间
+                except Exception:
+                    user_text = ""
+                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
 
             if stop_event.is_set():
                 break

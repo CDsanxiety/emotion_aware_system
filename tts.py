@@ -59,5 +59,5 @@ def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict 
 # 测试
 if __name__ == "__main__":
     print("测试 TTS...")
-    speak_sync("你好呀，我是暖暖，今天过得怎么样？", tts_params={"rate": "+20%", "pitch": "+2Hz"})
+    speak_sync("你好呀，今天过得怎么样？", tts_params={"rate": "+20%", "pitch": "+2Hz"})
     print("生成完成")

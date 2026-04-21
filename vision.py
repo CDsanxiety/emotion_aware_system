@@ -124,7 +124,7 @@ def _fallback_visual_description(frame: np.ndarray) -> str:
         return f"（本地感知模式）{light_status}，{complexity}{emotion_str}。建议以此作为基础互动。"
     except Exception as e:
         logger.warning(f"本地感知兜底也出错了: {e}")
-        return "画面内容解析受限，但暖暖依然在关注着你。"
+        return "画面内容解析受限，但系统依然在关注着你。"
 
 # ================== 对外接口 ==================
 

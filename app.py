@@ -1,6 +1,6 @@
 # app.py
 """
-Nuannuan V2.0 Pro - 集成感知决策执行系统
+微影听镜:基于多模态异步特征融合的深度情感感知与家居交互平台
 核心特性：并行感知、黑板架构、长期记忆、闭环反馈、延时监控。
 """
 import time
@@ -143,9 +143,9 @@ def debug_process(face_input, text_input):
 
 # ================== 竞赛级交互界面 (National Prize UI) ==================
 
-with gr.Blocks(theme=gr.themes.Soft(), title="Nuannuan V2.0 Pro") as demo:
+with gr.Blocks(theme=gr.themes.Soft(), title="微影听镜") as demo:
     gr.Markdown(f"""
-    # 🤖 暖暖 (Nuannuan) - 情感感知伴侣机器人
+    # 🤖 微影听镜 - 基于多模态异步特征融合的深度情感感知与家居交互平台
     > **[端云协同 V2.0 Pro]**：当前已连接至 `{ROS_BRIDGE_URI}` | **黑板架构与长期记忆已启用**
     """)
     
@@ -160,7 +160,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Nuannuan V2.0 Pro") as demo:
                     btn_run = gr.Button("🚀 立即唤醒", variant="primary")
                     btn_clear = gr.Button("🧹 重置记忆", variant="secondary")
                 
-                output_audio = gr.Audio(label="暖暖的回复 (TTS)", autoplay=True)
+                output_audio = gr.Audio(label="系统回复 (TTS)", autoplay=True)
                 output_vlm = gr.Textbox(label="🔍 视觉感知详情", lines=3)
 
         with gr.Column(scale=3):

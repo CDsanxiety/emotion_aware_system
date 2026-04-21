@@ -1,5 +1,5 @@
 """ros_bridge.py
-ROS 与暖暖项目的桥梁：实现 ROS 话题订阅与发布，以及函数调用服务。
+ROS 与微影听镜项目的桥梁：实现 ROS 话题订阅与发布，以及函数调用服务。
 与 ROS-LLM 框架的架构思想结合，提供统一的 ROS 接口。
 """
 from __future__ import annotations
