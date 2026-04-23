@@ -12,3 +12,5 @@ fer>=20.0
 pyautogen>=0.2
 metagpt>=0.3
 pygame>=2.0
+librosa>=0.10
+requests>=2.30.0

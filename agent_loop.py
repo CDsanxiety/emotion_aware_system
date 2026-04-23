@@ -16,18 +16,17 @@ import cv2
 from audio import recognize_speech
 from llm_api import get_response
 from blackboard import Blackboard
-from ros_bridge import get_ros_bridge
-from vla_integration import create_vla_integration
-from autogen_integration import global_autogen_manager
+from ros_client import global_ros_manager
+#from openvla_integration import create_vla_integration
 from memory_rag import LongTermMemory
+from multi_agent import MultiAgentCoordinator
 from utils import logger
 import vision
 from identity_manager import recognize_user
 from decision_tracer import DecisionTracer, NodeType, ModelType
+from audio_manager import play_system_audio
 
-# 初始化CogVLM集成标志
-COGVLM_AVAILABLE = False
-create_cogvlm_integration = None
+
 
 # 初始化长期记忆
 global_memory = LongTermMemory()
@@ -141,7 +140,7 @@ class GlobalAgentState:
 
     def __init__(self):
         self.proactive_enabled = True
-        self.is_interacting = False
+        self._is_interacting = False
         self.pending_proactive: Optional[ProactiveCareResult] = None
         self.last_proactive_time = 0.0
         self.proactive_cooldown_sec = 15.0
@@ -164,11 +163,11 @@ class GlobalAgentState:
 
     def set_interacting(self, interacting: bool) -> None:
         with self._lock:
-            self.is_interacting = interacting
+            self._is_interacting = interacting
 
     def is_interacting(self) -> bool:
         with self._lock:
-            return self.is_interacting
+            return self._is_interacting
 
     def set_pending_proactive(self, result: Optional[ProactiveCareResult]) -> None:
         with self._lock:
@@ -188,7 +187,7 @@ class GlobalAgentState:
         with self._lock:
             if not self.proactive_enabled:
                 return False
-            if self.is_interacting:
+            if self.is_interacting():
                 return False
             if time.time() - self.last_proactive_time < self.proactive_cooldown_sec:
                 return False
@@ -221,25 +220,16 @@ def _agent_worker(
     last_stt_time = 0.0
     stt_interval = 1.0  # 语音检测间隔，避免频繁占用麦克风
 
-    # 初始化 ROS 桥接
-    ros_bridge = get_ros_bridge()
+    # 初始化 ROS 管理器
+    ros_manager = global_ros_manager
+    # 确保 ROS 连接
+    if not ros_manager.is_connected:
+        ros_manager.connect()
     # 初始化 VLA 集成
-    vla_integration = create_vla_integration(blackboard)
-    # 使用全局 AutoGen 管理器并初始化
-    autogen_integration = global_autogen_manager
-    if autogen_integration and hasattr(autogen_integration, 'initialize_agents'):
-        autogen_integration.initialize_agents()
-    # 初始化 CogVLM 集成
-    global COGVLM_AVAILABLE, create_cogvlm_integration
-    if not COGVLM_AVAILABLE:
-        try:
-            from cogvlm_integration import create_cogvlm_integration
-            COGVLM_AVAILABLE = True
-        except Exception as e:
-            print(f"CogVLM 集成导入失败: {e}")
-            create_cogvlm_integration = None
-            COGVLM_AVAILABLE = False
-    cogvlm_integration = create_cogvlm_integration() if COGVLM_AVAILABLE else None
+    #vla_integration = create_vla_integration(blackboard)
+    # 初始化多代理协调器
+    multi_agent_coordinator = MultiAgentCoordinator()
+
     # 初始化决策追踪器
     decision_tracer = DecisionTracer.get_instance()
 
@@ -256,6 +246,8 @@ def _agent_worker(
                     # 临时打开摄像头
                     cap = cv2.VideoCapture(camera_index)
                     if cap.isOpened():
+                        # 播放摄像头打开识别音
+                        play_system_audio("camara")
                         ok, frame = cap.read()
                         if ok and frame is not None:
                             # 1. 用户身份识别
@@ -324,7 +316,7 @@ def _agent_worker(
                                     "emotion": proactive_result.emotion,
                                     "action": proactive_result.action,
                                 }
-                                ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                                ros_manager.publish_action(proactive_msg)
                                 
                                 _global_state.set_pending_proactive(proactive_result)
                                 
@@ -374,7 +366,7 @@ def _agent_worker(
                                         "emotion": proactive_result.emotion,
                                         "action": proactive_result.action,
                                     }
-                                    ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                                    ros_manager.publish_action(proactive_msg)
                                     
                                     _global_state.set_pending_proactive(proactive_result)
                                     
@@ -399,16 +391,23 @@ def _agent_worker(
             # 只有在用户未交互且达到语音检测间隔时才进行语音识别
             if not _global_state.is_interacting() and (now - last_stt_time) >= stt_interval:
                 try:
-                    decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id)
+                    decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
+                    logger.info("开始语音识别...")
                     user_text = recognize_speech(
                         timeout=stt_timeout_sec,
                         phrase_time_limit=stt_phrase_time_limit_sec,
                     )
-                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
+                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
                     last_stt_time = now  # 更新语音检测时间
-                except Exception:
+                    
+                    if user_text:
+                        logger.info(f"检测到用户语音: {user_text}")
+                    else:
+                        logger.info("未检测到用户语音")
+                except Exception as e:
                     user_text = ""
-                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL, user_id=user_id)
+                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
+                    logger.info(f"语音识别错误: {e}")
 
             if stop_event.is_set():
                 break
@@ -426,82 +425,33 @@ def _agent_worker(
                     },
                 )
 
-                # 5. 执行动作（使用 AutoGen 和 CogVLM 集成）
-                # 使用 AutoGen 分析情感和规划动作
+                # 5. 执行动作（使用多代理协调器）
+                # 使用多代理协调器分析情感和规划动作
+                logger.info("模型调度中...")
+                
                 decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
-                autogen_result = autogen_integration.analyze_emotion_and_plan_action(user_text, vision_desc)
+                execution_result = multi_agent_coordinator.think(
+                    vision_desc=vision_desc,
+                    audio_text=user_text,
+                    current_emotion="neutral",
+                    context=f"视觉: {vision_desc} 语音: {user_text} 情绪: neutral"
+                )
                 decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
-                emotion = autogen_result.get("emotion", "neutral")
-                action = autogen_result.get("action", "无动作")
-                confidence = autogen_result.get("confidence", 1.0)
-                decision_mode = autogen_result.get("decision_mode", "confident")
-                pad_state = autogen_result.get("pad_state", {})
+                emotion = execution_result.emotion
+                action = execution_result.action
+                confidence = 1.0  # 多代理协调器暂时不返回置信度
+                decision_mode = "confident"  # 多代理协调器暂时不返回决策模式
 
-                # 如果是询问模式，生成询问用户的提示
-                if autogen_result.get("needs_query", False):
-                    logger.info(f"[不确定性] 置信度: {confidence:.2f}，进入询问模式")
-                    inquiry_text = action
-                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
-                    res, audio_path = get_response(
-                        emotion,
-                        inquiry_text,
-                        enable_tts=enable_tts,
-                        vision_desc=vision_desc,
-                    )
-                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
-                    _safe_update_blackboard(
-                        blackboard,
-                        {
-                            "last_robot_result": res,
-                            "last_robot_audio_path": audio_path,
-                            "last_emotion_confidence": confidence,
-                            "last_decision_mode": decision_mode,
-                        },
-                    )
+                # 如果需要抑制回复
+                if execution_result.should_suppress:
+                    logger.info("[多代理] 抑制回复: 无有效输入")
                     _global_state.set_interacting(False)
                     continue
 
-                # 如果有图像，使用 CogVLM 进行多模态分析
-                if COGVLM_AVAILABLE and cogvlm_integration:
-                    cap = None
-                    try:
-                        # 临时打开摄像头
-                        cap = cv2.VideoCapture(camera_index)
-                        if cap.isOpened():
-                            ok, frame = cap.read()
-                            if ok and frame is not None:
-                                from PIL import Image
-                                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                                decision_tracer.start_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id)
-                                cogvlm_result = cogvlm_integration.process_multimodal(image, user_text)
-                                decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
-                                if cogvlm_result.get("success"):
-                                    emotion = cogvlm_result.get("emotion", emotion)
-                                    action = cogvlm_result.get("action", action)
-                    except Exception as e:
-                        print(f"CogVLM 处理失败: {e}")
-                        decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
-                    finally:
-                        # 无论如何都释放摄像头
-                        if cap is not None:
-                            try:
-                                cap.release()
-                            except Exception:
-                                pass
+
                 
-                # 构建 VLA 观测
-                from vla_integration import VLAObservation
-                vla_obs = VLAObservation(
-                    vision_desc=vision_desc,
-                    audio_text=user_text,
-                    timestamp=ts
-                )
-                # 预测动作
-                decision_tracer.start_latency_tracking(NodeType.ACTION_SELECTION, ModelType.LOCAL, user_id)
-                prediction = vla_integration.predict_action(vla_obs, instruction="响应用户需求")
-                # 执行动作
-                execution_result = vla_integration.execute_action(prediction)
-                decision_tracer.end_latency_tracking(NodeType.ACTION_SELECTION, ModelType.LOCAL, user_id=user_id)
+                # VLA 功能已禁用（vla_integration 模块已删除）
+                # 继续使用多代理协调器进行决策
                 
                 decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                 res, audio_path = get_response(
@@ -520,6 +470,8 @@ def _agent_worker(
                 )
 
                 _global_state.set_interacting(False)
+                
+
 
             else:
                 last_speech_time = 0.0
@@ -544,40 +496,19 @@ def _agent_worker(
                     )
 
                     # 7. 执行主动关心动作
-                    # 使用 AutoGen 分析场景和规划动作
+                    # 使用多代理协调器分析场景和规划动作
                     decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
-                    autogen_result = autogen_integration.analyze_emotion_and_plan_action("", vision_desc)
+                    execution_result = multi_agent_coordinator.think(
+                        vision_desc=vision_desc,
+                        audio_text="",
+                        current_emotion="neutral",
+                        context=f"视觉: {vision_desc} 语音: 无 情绪: neutral"
+                    )
                     decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
-                    emotion = autogen_result.get("emotion", "neutral")
-                    action = autogen_result.get("action", "无动作")
+                    emotion = execution_result.emotion
+                    action = execution_result.action
                     
-                    # 如果有图像，使用 CogVLM 进行多模态分析
-                    if COGVLM_AVAILABLE and cogvlm_integration:
-                        cap = None
-                        try:
-                            # 临时打开摄像头
-                            cap = cv2.VideoCapture(camera_index)
-                            if cap.isOpened():
-                                ok, frame = cap.read()
-                                if ok and frame is not None:
-                                    from PIL import Image
-                                    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                                    decision_tracer.start_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id)
-                                    cogvlm_result = cogvlm_integration.process_multimodal(image, "分析当前场景，用户需要什么？")
-                                    decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
-                                    if cogvlm_result.get("success"):
-                                        emotion = cogvlm_result.get("emotion", emotion)
-                                        action = cogvlm_result.get("action", action)
-                        except Exception as e:
-                            print(f"CogVLM 处理失败: {e}")
-                            decision_tracer.end_latency_tracking(NodeType.SCENE_UNDERSTANDING, ModelType.CLOUD, user_id=user_id)
-                        finally:
-                            # 无论如何都释放摄像头
-                            if cap is not None:
-                                try:
-                                    cap.release()
-                                except Exception:
-                                    pass
+
                     
                     decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
                     res, audio_path = get_response(
@@ -602,7 +533,7 @@ def _agent_worker(
                         "emotion": proactive_result.emotion,
                         "action": proactive_result.action,
                     }
-                    ros_bridge.publish_message("/robot/proactive_care", proactive_msg)
+                    ros_manager.publish_action(proactive_msg)
 
                     _global_state.set_pending_proactive(proactive_result)
 
@@ -611,12 +542,15 @@ def _agent_worker(
                             on_proactive_output(proactive_result)
                         except Exception:
                             pass
+                    
+
 
             # 8. 发布状态到 ROS
             if (now - last_ros_publish_time) >= ros_publish_interval:
                 last_ros_publish_time = now
                 if blackboard:
                     state_msg = {
+                        "type": "status",
                         "last_speech_text": getattr(blackboard, "last_speech_text", ""),
                         "last_speech_time": getattr(blackboard, "last_speech_time", 0.0),
                         "user_presence": getattr(blackboard, "user_presence", False),
@@ -626,7 +560,7 @@ def _agent_worker(
                         "proactive_enabled": _global_state.is_proactive_enabled(),
                         "is_interacting": _global_state.is_interacting(),
                     }
-                    ros_bridge.publish_message("/robot/status", state_msg)
+                    ros_manager.publish_action(state_msg)
 
             # 9. 控制频率
             elapsed = time.time() - start_time
@@ -646,8 +580,8 @@ def start_agentic_main_loop(
     enable_tts: bool = False,
     on_proactive_output: Optional[Callable[[ProactiveCareResult], None]] = None,
     camera_index: int = 0,
-    stt_timeout_sec: int = 2,
-    stt_phrase_time_limit_sec: int = 6,
+    stt_timeout_sec: int = 5,
+    stt_phrase_time_limit_sec: int = 8,
     vision_interval_sec: float = 6.0,
     idle_trigger_sec: float = 30.0,
     proactive_cooldown_sec: float = 15.0,
@@ -686,6 +620,14 @@ class AgentLoopHandle:
 
     def stop(self) -> None:
         self.stop_event.set()
+        # 等待线程结束，确保麦克风和其他资源被正确释放
+        if self.thread.is_alive():
+            logger.info("等待 agent_loop 线程结束...")
+            self.thread.join(timeout=5.0)  # 最多等待 5 秒
+            if self.thread.is_alive():
+                logger.warning("agent_loop 线程未能在 5 秒内结束，可能存在资源泄露")
+            else:
+                logger.info("agent_loop 线程已成功结束")
 
     def is_alive(self) -> bool:
         return self.thread.is_alive()

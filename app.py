@@ -12,7 +12,7 @@ from typing import Optional
 
 # 这里的 import 顺序按系统层级排列
 from config import ROS_BRIDGE_URI
-from audio import transcribe_file
+from audio import transcribe_file, set_system_shutting_down
 from llm_api import clear_memory, get_response_with_multi_agent as get_response
 from ros_client import global_ros_manager
 from utils import logger, setup_logger
@@ -23,8 +23,7 @@ from blackboard import Blackboard
 from memory_rag import LongTermMemory
 from pad_model import PADEmotionEngine
 from openvla_integration import OpenVLA, VLAControlLoop
-from autogen_integration import global_autogen_manager
-from meta_gpt_integration import global_metagpt_manager
+from audio_manager import play_system_audio
 
 # 初始化全局模块
 setup_logger()
@@ -77,6 +76,7 @@ def main_process(frame, audio_path):
     """
     竞赛级全链路：感知并行化 -> 决策结构化 -> 执行闭环化。
     """
+
     if frame is None and not audio_path:
         return None, "等待输入中...", "（无画面）", {}
 
@@ -130,6 +130,8 @@ def main_process(frame, audio_path):
     }
 
     logger.info(f"脉冲完成: {total_latency:.2f}s | 状态: {res.get('execution', {}).get('emotion', '未知')}")
+
+
 
     return response_audio, res, vision_desc, latency_report
 
@@ -201,6 +203,11 @@ if __name__ == "__main__":
     arch = CoreArchitecture()
     arch.print_summary()
 
+    # 播放开机音
+    logger.info("播放开机音...")
+    play_system_audio("startup")
+    time.sleep(5)  # 等待开机音播放完成（增加延迟时间）
+
     # 启动agent_loop
     global_agent_loop = start_agentic_main_loop(
         blackboard=global_blackboard,
@@ -214,10 +221,35 @@ if __name__ == "__main__":
     logger.info("[Agent Loop] 已启动，开始自主感知与场景驱动触发")
 
     try:
-        demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+        # 尝试从 7860 开始的多个端口
+        for port in range(7860, 7870):
+            try:
+                logger.info(f"尝试在端口 {port} 启动服务...")
+                demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+                break
+            except OSError as e:
+                if "port" in str(e).lower():
+                    logger.warning(f"端口 {port} 被占用，尝试下一个端口...")
+                    continue
+                else:
+                    raise
+    except KeyboardInterrupt:
+        logger.info("收到 Ctrl+C 信号，正在优雅关闭...")
     finally:
+        # 设置系统关闭状态，防止新的语音识别
+        logger.info("设置系统关闭状态...")
+        set_system_shutting_down(True)
+        
+        # 播放关机音
+        logger.info("播放关机音...")
+        play_system_audio("shutdow")
+        time.sleep(3)  # 等待关机音播放完成
+        
         running = False
         if global_agent_loop:
             global_agent_loop.stop()
-        global_ros_manager.shutdown()
+        try:
+            global_ros_manager.shutdown()
+        except Exception as e:
+            logger.error(f"ROS 关闭失败: {e}")
         logger.info("系统已关闭")
