@@ -1,0 +1,406 @@
+2026-04-22 21:10:50,316 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:16:20,953 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:16:35,072 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:16:35,072 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:19:34,838 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:19:45,100 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:19:45,100 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:19:45,121 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:19:45,121 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:19:45,363 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:19:45,363 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:19:45,363 - INFO - 播放开机音...
+2026-04-22 21:19:45,363 - INFO - 播放开机音...
+2026-04-22 21:19:45,492 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:19:45,493 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:19:45,492 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:19:45,493 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:21:42,561 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:21:42,561 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:21:44,860 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:21:44,860 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:21:44,861 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:21:44,861 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:21:44,862 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:21:44,862 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:21:44,862 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:21:44,862 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:21:44,862 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:21:44,862 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:21:44,862 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:21:44,862 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:21:44,863 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:21:44,863 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:21:45,343 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:21:45,343 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:21:45,343 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:21:45,343 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:21:45,343 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:21:45,343 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:21:45,343 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:21:45,343 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:21:45,345 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:21:45,346 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.482s
+2026-04-22 21:21:45,346 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.482s
+2026-04-22 21:21:45,346 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:21:45,346 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:21:45,346 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:21:45,346 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:21:45,346 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:21:45,346 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:21:45,346 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:21:45,346 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:21:45,349 - INFO - 脉冲完成: 2.79s | 状态: friendly
+2026-04-22 21:21:45,349 - INFO - 脉冲完成: 2.79s | 状态: friendly
+2026-04-22 21:23:33,851 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:23:33,851 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:23:35,858 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:23:35,858 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:23:35,859 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:23:35,859 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:23:35,859 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:23:35,859 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:23:35,859 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:23:35,859 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:23:36,021 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:23:36,021 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:23:36,023 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:23:36,023 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:23:36,023 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:23:36,023 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:23:36,024 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:23:36,025 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.166s
+2026-04-22 21:23:36,025 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.166s
+2026-04-22 21:23:36,025 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:23:36,025 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:23:36,025 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:23:36,025 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:23:36,025 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:23:36,025 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:23:36,026 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:23:36,026 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:23:36,027 - INFO - 脉冲完成: 2.18s | 状态: friendly
+2026-04-22 21:23:36,027 - INFO - 脉冲完成: 2.18s | 状态: friendly
+2026-04-22 21:24:06,316 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:24:06,316 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:24:08,320 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:24:08,320 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:24:08,321 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:24:08,321 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:24:08,321 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:24:08,321 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:24:08,321 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:24:08,321 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:24:08,496 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:24:08,496 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:24:08,496 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:24:08,496 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:24:08,496 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:24:08,496 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:24:08,496 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:24:08,496 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:24:08,497 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:24:08,497 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.177s
+2026-04-22 21:24:08,497 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.177s
+2026-04-22 21:24:08,498 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:24:08,498 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:24:08,498 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:24:08,498 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:24:08,498 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:24:08,498 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:24:08,498 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:24:08,498 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:24:08,501 - INFO - 脉冲完成: 2.18s | 状态: friendly
+2026-04-22 21:24:08,501 - INFO - 脉冲完成: 2.18s | 状态: friendly
+2026-04-22 21:32:34,339 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:32:45,475 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:32:45,475 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:32:45,486 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:32:45,486 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:32:45,682 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:32:45,682 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:32:45,683 - INFO - 播放开机音...
+2026-04-22 21:32:45,683 - INFO - 播放开机音...
+2026-04-22 21:32:45,764 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:32:45,764 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:32:45,764 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:32:45,764 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:35:08,122 - INFO - 播放关机音...
+2026-04-22 21:35:08,122 - INFO - 播放关机音...
+2026-04-22 21:38:21,403 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:38:37,213 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:38:37,213 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:38:37,226 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:38:37,226 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:38:37,662 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:38:37,662 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:38:37,662 - INFO - 播放开机音...
+2026-04-22 21:38:37,662 - INFO - 播放开机音...
+2026-04-22 21:38:37,806 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:38:37,806 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:38:37,806 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:38:37,806 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:39:24,972 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:39:24,972 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:39:26,977 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:39:26,977 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:39:26,979 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:39:26,979 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:39:26,979 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:39:26,979 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:39:26,979 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:39:26,979 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:39:26,980 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:39:26,980 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:39:26,980 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:39:26,980 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:39:26,980 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:39:26,980 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:39:27,295 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:39:27,295 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:39:27,296 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:39:27,296 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:39:27,296 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:39:27,297 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:39:27,297 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:39:27,297 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.318s
+2026-04-22 21:39:27,297 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.318s
+2026-04-22 21:39:27,298 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:39:27,298 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:39:27,298 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:39:27,298 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:39:27,298 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:39:27,298 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:39:27,298 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:39:27,298 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:39:27,300 - INFO - 脉冲完成: 2.33s | 状态: friendly
+2026-04-22 21:39:27,300 - INFO - 脉冲完成: 2.33s | 状态: friendly
+2026-04-22 21:44:01,366 - INFO - 播放关机音...
+2026-04-22 21:44:01,366 - INFO - 播放关机音...
+2026-04-22 21:46:50,653 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 21:47:00,391 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:47:00,391 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:47:00,402 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:47:00,402 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 21:47:00,586 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:47:00,586 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 21:47:00,586 - INFO - 播放开机音...
+2026-04-22 21:47:00,586 - INFO - 播放开机音...
+2026-04-22 21:47:00,661 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:47:00,661 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:47:00,661 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 21:47:00,661 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 21:47:00,661 - INFO - 播放背景音...
+2026-04-22 21:47:00,661 - INFO - 播放背景音...
+2026-04-22 21:51:22,409 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:51:22,409 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 21:51:24,414 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:51:24,414 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 21:51:24,415 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:51:24,415 - INFO - [物理表达] 控制器已启动
+2026-04-22 21:51:24,416 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:51:24,416 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 21:51:24,416 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:51:24,416 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 21:51:24,416 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:51:24,416 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 21:51:24,416 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:51:24,416 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 21:51:24,418 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:51:24,418 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 21:51:24,741 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:51:24,741 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 21:51:24,742 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:51:24,742 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 21:51:24,742 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:51:24,742 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:51:24,742 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:51:24,742 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:51:24,743 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 21:51:24,743 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.326s
+2026-04-22 21:51:24,743 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.326s
+2026-04-22 21:51:24,743 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:51:24,743 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 21:51:24,743 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:51:24,743 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 21:51:24,743 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:51:24,743 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 21:51:24,743 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:51:24,743 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 21:51:24,745 - INFO - 脉冲完成: 2.34s | 状态: friendly
+2026-04-22 21:51:24,745 - INFO - 脉冲完成: 2.34s | 状态: friendly
+2026-04-22 21:53:33,812 - INFO - 播放关机音...
+2026-04-22 21:53:33,812 - INFO - 播放关机音...
+2026-04-22 22:16:35,182 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 22:16:47,460 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:16:47,460 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:16:47,470 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 22:16:47,470 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 22:16:47,842 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 22:16:47,842 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 22:16:47,842 - INFO - 播放开机音...
+2026-04-22 22:16:47,842 - INFO - 播放开机音...
+2026-04-22 22:16:47,993 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 22:16:47,995 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:16:47,993 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 22:16:47,995 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:16:47,995 - INFO - 播放背景音...
+2026-04-22 22:16:47,995 - INFO - 播放背景音...
+2026-04-22 22:19:04,523 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 22:19:04,523 - INFO - --- [Pipeline] 开启新一轮感知脉冲 ---
+2026-04-22 22:19:06,837 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 22:19:06,837 - WARNING - 外部网络连接检测失败 (Google STT 可能不可用): timed out
+2026-04-22 22:19:06,839 - INFO - [物理表达] 控制器已启动
+2026-04-22 22:19:06,839 - INFO - [物理表达] 控制器已启动
+2026-04-22 22:19:06,840 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 22:19:06,840 - INFO - [物理表达] 控制器已绑定到 PAD 引擎
+2026-04-22 22:19:06,841 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 22:19:06,841 - INFO - [多代理] Agentic Reasoning 协调器已初始化
+2026-04-22 22:19:06,841 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 22:19:06,841 - INFO - [MultiAgentCoordinator] 开始 Agentic Reasoning...
+2026-04-22 22:19:06,842 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 22:19:06,842 - INFO - [MultiAgentCoordinator] 输入: vision=无法读取摄像头画面。..., audio=...
+2026-04-22 22:19:06,842 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 22:19:06,842 - INFO - [PerceptionAgent] 感知分析完成：发现0个细节，识别到0个潜在关注点
+2026-04-22 22:19:07,552 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 22:19:07,552 - ERROR - [MemoryAgent] 记忆检索失败: cannot import name 'global_memory' from 'memory_rag' (D:\tool\项目\emotion_aware_system-main\memory_rag.py)
+2026-04-22 22:19:07,553 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 22:19:07,553 - ERROR - [ExecutionAgent] LLM 调用失败: name 'call_llm' is not defined
+2026-04-22 22:19:07,553 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 22:19:07,553 - INFO - [ExecutionAgent] 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 22:19:07,553 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 22:19:07,553 - INFO - [ExecutionAgent] 推理链: 原始情绪识别: neutral
+2026-04-22 22:19:07,554 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 22:19:07,554 - INFO - [ExecutionAgent] 推理链: 感知细节: 无
+2026-04-22 22:19:07,554 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 22:19:07,554 - INFO - [ExecutionAgent] 推理链: 用户健康状态: 
+2026-04-22 22:19:07,555 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 22:19:07,555 - INFO - [ExecutionAgent] 推理链: 用户画像: 普通
+2026-04-22 22:19:07,555 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.713s
+2026-04-22 22:19:07,555 - INFO - [MultiAgentCoordinator] Agentic Reasoning 完成，耗时: 0.713s
+2026-04-22 22:19:07,555 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 22:19:07,555 - INFO - [多代理] 最终决策: 基于4步推理，选择情绪friendly和动作interact
+2026-04-22 22:19:07,556 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 22:19:07,556 - INFO - [多代理] 回复内容: 你好呀！有什么我可以帮你的吗？
+2026-04-22 22:19:07,556 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 22:19:07,556 - INFO - [PAD] P=0.00 A=0.00 D=0.00 | 状态: 平静中性
+2026-04-22 22:19:07,556 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 22:19:07,556 - INFO - [物理表达] LED: 中性 50% | 动画: 稳定 | 头部: yaw=0.0° pitch=0.0° 速度=1.0 | 肢体: 中性 | 运动: 加速度=1.00 减速度=1.00 最大速度=1.00 抖动=0.50 平滑度=0.80 减速曲线=polynomial
+2026-04-22 22:19:07,558 - INFO - 脉冲完成: 3.04s | 状态: friendly
+2026-04-22 22:19:07,558 - INFO - 脉冲完成: 3.04s | 状态: friendly
+2026-04-22 22:21:05,302 - INFO - 播放关机音...
+2026-04-22 22:21:05,302 - INFO - 播放关机音...
+2026-04-22 22:54:24,319 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 22:54:37,222 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:54:37,222 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:54:37,242 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 22:54:37,242 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 22:54:37,512 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 22:54:37,512 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 22:54:37,512 - INFO - 播放开机音...
+2026-04-22 22:54:37,512 - INFO - 播放开机音...
+2026-04-22 22:54:37,635 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 22:54:37,637 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:54:37,635 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 22:54:37,637 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 22:54:37,638 - INFO - 播放背景音...
+2026-04-22 22:54:37,638 - INFO - 播放背景音...
+2026-04-22 23:31:20,722 - INFO - 播放关机音...
+2026-04-22 23:31:20,722 - INFO - 播放关机音...
+2026-04-22 23:41:03,159 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 23:41:20,849 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:41:20,849 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:41:20,867 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:41:20,867 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:41:21,139 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:41:21,139 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:41:21,139 - INFO - 播放开机音...
+2026-04-22 23:41:21,139 - INFO - 播放开机音...
+2026-04-22 23:41:21,147 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:41:21,147 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:41:21,148 - INFO - 播放背景音...
+2026-04-22 23:41:21,149 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:41:21,148 - INFO - 播放背景音...
+2026-04-22 23:41:21,149 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:45:42,898 - INFO - 播放关机音...
+2026-04-22 23:45:42,898 - INFO - 播放关机音...
+2026-04-22 23:46:19,750 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 23:46:31,567 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:46:31,567 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:46:31,577 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:46:31,577 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:46:31,819 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:46:31,819 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:46:31,820 - INFO - 播放开机音...
+2026-04-22 23:46:31,820 - INFO - 播放开机音...
+2026-04-22 23:46:31,824 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:46:31,824 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:46:31,824 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:46:31,824 - INFO - 播放背景音...
+2026-04-22 23:46:31,824 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:46:31,824 - INFO - 播放背景音...
+2026-04-22 23:57:06,351 - INFO - 播放关机音...
+2026-04-22 23:57:06,351 - INFO - 播放关机音...
+2026-04-22 23:57:29,615 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 23:57:40,872 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:57:40,872 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:57:40,889 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:57:40,889 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:57:41,143 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:57:41,143 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:57:41,144 - INFO - 播放开机音...
+2026-04-22 23:57:41,144 - INFO - 播放开机音...
+2026-04-22 23:57:44,149 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:57:44,150 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:57:44,149 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:57:44,150 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:57:44,160 - INFO - 播放背景音...
+2026-04-22 23:57:44,160 - INFO - 播放背景音...
+2026-04-22 23:59:15,472 - INFO - 播放关机音...
+2026-04-22 23:59:15,472 - INFO - 播放关机音...
+2026-04-22 23:59:38,781 - INFO - LLM_API_KEY 未设置：使用本地模拟回复。
+2026-04-22 23:59:55,927 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:59:55,927 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:59:55,945 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:59:55,945 - WARNING - librosa not available, voice recognition disabled
+2026-04-22 23:59:56,203 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:59:56,203 - INFO - >>> ROS-LLM 核心架构就绪
+2026-04-22 23:59:56,204 - INFO - 播放开机音...
+2026-04-22 23:59:56,204 - INFO - 播放开机音...
+2026-04-22 23:59:59,208 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:59:59,208 - INFO - [Agent Loop] 已启动，开始自主感知与场景驱动触发
+2026-04-22 23:59:59,219 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:59:59,219 - INFO - 播放背景音...
+2026-04-22 23:59:59,219 - ERROR - 无法建立 ROSBridge 连接 (ws://localhost:9090): 'Ros' object has no attribute 'on_error'
+2026-04-22 23:59:59,219 - INFO - 播放背景音...
+2026-04-23 00:03:04,734 - INFO - 播放关机音...
+2026-04-23 00:03:04,734 - INFO - 播放关机音...
