@@ -1,1 +1,14 @@
+<<<<<<< HEAD
 .env 
+=======
+.venv/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.env*
+*.mp3
+logs/
+.agents/
+>>>>>>> 483f2a96306b03f52efde3fc5895cf74d9121b3f
