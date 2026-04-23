@@ -42,11 +42,20 @@ except Exception as e:
 print("\n[3/4] 正在测试扬声器 (使用 mpg123)...")
 async def test_audio():
     try:
+        # 测试 TTS
         text = "系统自检开始，当前硬件连接正常。"
         communicate = Communicate(text, "zh-CN-XiaoxiaoNeural")
         await communicate.save("check_audio.mp3")
         os.system(f"mpg123 -a {AUDIO_OUTPUT_DEVICE} check_audio.mp3")
-        print(f"✅ 扬声器测试指令已发出 (设备: {AUDIO_OUTPUT_DEVICE})。")
+        print(f"✅ 语音合成 (TTS) 测试通过。")
+        
+        # 测试背景音乐
+        print("正在尝试试听背景音乐 happy.mp3...")
+        if os.path.exists("music/happy.mp3"):
+            os.system(f"mpg123 -a {AUDIO_OUTPUT_DEVICE} music/happy.mp3 --frames 150") # 只播几秒
+            print("✅ 背景音乐文件读取正常。")
+        else:
+            print("❌ 未发现背景音乐文件，请检查 music/ 目录。")
     except Exception as e:
         print(f"❌ 扬声器测试失败: {e}")
 

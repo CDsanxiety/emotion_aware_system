@@ -16,12 +16,24 @@ def play_audio(file_path):
     os.system(cmd)
 
 def on_status_received(msg):
-    """处理来自 ROS 的状态消息"""
+    """处理来自 ROS 的动作/状态消息"""
     try:
-        # 统一读取 last_robot_audio_path 字段
+        # 1. 处理语音播报 (TTS)
         audio_path = msg.get("last_robot_audio_path")
         if audio_path:
             play_audio(audio_path)
+            
+        # 2. 处理背景音乐 (根据情绪触发)
+        # 从 JSON 中获取情绪
+        execution = msg.get("execution", {})
+        emotion = execution.get("emotion") or msg.get("emotion")
+        
+        if emotion:
+            music_file = os.path.join("music", f"{emotion}.mp3")
+            if os.path.exists(music_file):
+                logger.info(f"[语音驱动] 触发情绪背景音: {music_file}")
+                # 使用 & 后台播放背景音，防止阻塞主逻辑
+                os.system(f"mpg123 -a {AUDIO_OUTPUT_DEVICE} {music_file} &")
     except Exception as e:
         logger.error(f"[语音驱动] 处理出错: {e}")
 

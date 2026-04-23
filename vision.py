@@ -16,14 +16,8 @@ from dotenv import load_dotenv
 from fer.fer import FER
 from openai import OpenAI
 
+from config import API_KEY, BASE_URL, VL_MODEL, VL_TIMEOUT, VL_PROMPT_MAIN
 from utils import logger
-
-# ================== 配置区 (后期可剥离至 config.py) ==================
-VL_MODEL = "qwen-vl-max"
-VL_TIMEOUT_SEC = 10
-VL_SYSTEM_PROMPT = "你是一个冷静、专业的视觉感知系统。请简洁描述画面中的场景、人物神态及潜在物理风险。"
-VL_USER_PROMPT = "请用一句话描述这张图片的内容，重点关注人物情绪、环境光线和异常物品。"
-VL_USER_PROMPT_RETRY = "这张图里有什么？请简短回答。"
 
 load_dotenv()
 
@@ -33,13 +27,13 @@ _fer_detector: Optional[FER] = None
 
 def _get_openai_client() -> Optional[OpenAI]:
     global _client_instance
-    api_key = (os.getenv("LLM_API_KEY") or "").strip()
-    if not api_key:
+    if not API_KEY:
+        logger.error("未配置 API_KEY，视觉功能将降级为本地模式")
         return None
     if _client_instance is None:
         _client_instance = OpenAI(
-            api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            api_key=API_KEY,
+            base_url=BASE_URL
         )
     return _client_instance
 
@@ -79,7 +73,7 @@ def _call_qwen_vl(data_url: str, prompt: str) -> str:
     resp = client.chat.completions.create(
         model=VL_MODEL,
         messages=[
-            {"role": "system", "content": VL_SYSTEM_PROMPT},
+            {"role": "system", "content": "你是一个冷静、专业的视觉感知系统。请简洁描述画面中的场景、人物神态及潜在物理风险。"},
             {
                 "role": "user",
                 "content": [
@@ -90,7 +84,7 @@ def _call_qwen_vl(data_url: str, prompt: str) -> str:
         ],
         temperature=0.2,
         max_tokens=300,
-        timeout=VL_TIMEOUT_SEC,
+        timeout=VL_TIMEOUT,
     )
     return (resp.choices[0].message.content or "").strip()
 
@@ -145,12 +139,12 @@ def process_image(frame: np.ndarray) -> Dict[str, Any]:
 
     try:
         # 尝试云端 VLM
-        desc = _call_qwen_vl(data_url, VL_USER_PROMPT)
+        desc = _call_qwen_vl(data_url, VL_PROMPT_MAIN)
         if desc:
             return _make_result(True, desc, False)
         
-        # 第一次失败重试
-        desc = _call_qwen_vl(data_url, VL_USER_PROMPT_RETRY)
+        # 重试（使用简化提示词）
+        desc = _call_qwen_vl(data_url, "这张图里有什么？请简短回答。")
         if desc:
             return _make_result(True, desc, False)
             
@@ -160,7 +154,7 @@ def process_image(frame: np.ndarray) -> Dict[str, Any]:
         return _make_result(False, _fallback_visual_description(frame), True)
 
 def data_key_configured() -> bool:
-    return bool(os.getenv("LLM_API_KEY"))
+    return bool(API_KEY)
 
 def no_input_vision() -> Dict[str, Any]:
     return _make_result(False, "（暂无画面输入）", True)
