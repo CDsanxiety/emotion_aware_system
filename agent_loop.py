@@ -147,7 +147,7 @@ def _safe_update_blackboard(blackboard: Optional[Blackboard], updates: Dict[str,
 
 class GlobalAgentState:
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __init__(self):
         self.proactive_enabled = True
@@ -394,25 +394,42 @@ def _agent_worker(
             user_text = ""
             # 只有在用户未交互且达到语音检测间隔时才进行语音识别
             if not _global_state.is_interacting() and (now - last_stt_time) >= stt_interval:
-                try:
-                    decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
-                    logger.info("开始语音识别...")
-                    user_text = recognize_speech(
-                        timeout=stt_timeout_sec,
-                        phrase_time_limit=stt_phrase_time_limit_sec,
-                    )
-                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
-                    last_stt_time = now  # 更新语音检测时间
+                if not hasattr(_agent_worker, "_stt_thread") or not _agent_worker._stt_thread.is_alive():
+                    # 启动后台识别线程
+                    if not hasattr(_agent_worker, "_stt_queue"):
+                        import queue
+                        _agent_worker._stt_queue = queue.Queue()
                     
-                    if user_text:
-                        logger.info(f"检测到用户语音: {user_text}")
-                    else:
-                        logger.info("未检测到用户语音")
-                except Exception as e:
-                    user_text = ""
-                    decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
-                    logger.info(f"语音识别错误: {e}")
+                    def _stt_worker_thread(q):
+                        try:
+                            decision_tracer.start_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
+                            logger.info("开始语音识别...")
+                            text = recognize_speech(
+                                timeout=stt_timeout_sec,
+                                phrase_time_limit=stt_phrase_time_limit_sec,
+                            )
+                            decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
+                            if text:
+                                logger.info(f"检测到用户语音: {text}")
+                            else:
+                                logger.info("未检测到用户语音")
+                            q.put(text)
+                        except Exception as e:
+                            decision_tracer.end_latency_tracking(NodeType.RAW_SENSOR, ModelType.LOCAL)
+                            logger.info(f"语音识别错误: {e}")
+                            q.put("")
 
+                    _agent_worker._stt_thread = threading.Thread(target=_stt_worker_thread, args=(_agent_worker._stt_queue,), daemon=True)
+                    _agent_worker._stt_thread.start()
+                    last_stt_time = now
+                else:
+                    # 检查是否有结果
+                    import queue
+                    try:
+                        user_text = _agent_worker._stt_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+            
             if stop_event.is_set():
                 break
 

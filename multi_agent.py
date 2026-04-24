@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from utils import logger
-#from llm_api import call_llm
 
 
 @dataclass
@@ -370,6 +369,7 @@ class ExecutionAgent:
         vision_desc = perception.raw_vision or "无视觉信息"
 
         try:
+            from llm_api import call_llm
             # 调用 LLM 生成回复
             llm_result = call_llm(original_emotion, user_text, vision_desc)
             

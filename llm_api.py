@@ -111,6 +111,8 @@ def _append_turn(user_content: str, assistant_reply: str) -> None:
     _session_memory.append({"role": "user", "content": user_content})
     _session_memory.append({"role": "assistant", "content": assistant_reply})
 
+_cached_system_prompt = None
+
 def call_llm(emotion: str, user_text: str, vision_desc: str = "", prompt_file: str = "prompt.txt") -> dict:
     user_content = _build_user_content(emotion, user_text, vision_desc)
     client = _get_client()
@@ -203,7 +205,7 @@ def get_response(face_emotion: str, voice_text: str, enable_tts: bool = True, vi
     audio_path = None
     if enable_tts and reply_text:
         # speak_sync 现在支持传入情绪调节参数
-        audio_path = speak_sync(reply_text, tts_params)
+        audio_path = speak_sync(reply_text, tts_params=tts_params)
 
     return result, audio_path
 
@@ -289,7 +291,7 @@ def get_response_with_multi_agent(
 
         audio_path = None
         if enable_tts and reply_text:
-            audio_path = speak_sync(reply_text, tts_params)
+            audio_path = speak_sync(reply_text, tts_params=tts_params)
 
             if music_type:
                 logger.info(f"[多代理] 建议播放音乐: {music_type}")

@@ -54,7 +54,28 @@ def speak_sync(text: str, voice: str = "zh-CN-XiaoxiaoNeural", tts_params: dict 
     """
     同步版本，方便在普通函数里调用
     """
-    return asyncio.run(speak(text, voice, tts_params))
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import threading
+            import concurrent.futures
+            
+            # 使用一个独立的线程和新的事件循环来运行协程，完全避开当前线程的事件循环冲突
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(speak(text, voice, tts_params))
+                finally:
+                    new_loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(run_in_thread)
+                return future.result()
+        else:
+            return loop.run_until_complete(speak(text, voice, tts_params))
+    except RuntimeError:
+        return asyncio.run(speak(text, voice, tts_params))
 
 # 测试
 if __name__ == "__main__":
