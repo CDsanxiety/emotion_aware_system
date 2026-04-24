@@ -1,30 +1,44 @@
-# config.py 全功能补全版
+# config.py
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- 基础配置 ---
-API_KEY = os.getenv("API_KEY", "your-api-key")
-BASE_URL = os.getenv("BASE_URL", "https://api.openai.com/v1")
+# ================== 1. 全局 API 配置 ==================
+API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+BASE_URL = os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 
-# --- ROS 配置 ---
-# 建议把 localhost 换成 127.0.0.1，更稳定
-ROS_BRIDGE_URI = os.getenv("ROS_BRIDGE_URI", "ws://127.0.0.1:9090")
+# ================== 2. 视觉 (Vision) 配置 ==================
+CAMERA_INDEX = 0
+VL_MODEL = "qwen-vl-max"
+VL_TIMEOUT = 15
+VL_PROMPT_MAIN = "请用一句话描述这张图片的内容，重点关注人物情绪、环境光线和异常物品。"
+
+# ================== 3. 听觉 (Audio STT) 配置 ==================
+STT_TIMEOUT = 5
+STT_PHRASE_LIMIT = 8
+STT_LANGUAGE = "zh-CN"
+# 💡 强制指定外接 USB 声卡麦克风
+AUDIO_INPUT_INDEX = 2
+
+# ================== 4. 语音播放 配置 ==================
+TTS_VOICE = "zh-CN-XiaoxiaoNeural"
+# 💡 强制指定外接 USB 声卡扬声器
+AUDIO_OUTPUT_DEVICE = "hw:2,0"
+
+# ================== 5. 灯带 (LED) 配置 ==================
+LED_PIN = 18
+LED_COUNT = 60
+# ⚠️ 物理安全红线：直接取电亮度锁死在 0.1
+LED_BRIGHTNESS = 0.1
+
+# ================== 6. 硬件通信 (ROS) 话题 ==================
+ROS_BRIDGE_URI = os.getenv("ROS_BRIDGE_URI", "ws://localhost:9090")
 ROS_ACTION_TOPIC = "/robot/action"
 ROS_STATUS_TOPIC = "/robot/status"
 ROS_STATE_TOPIC = "/robot/state"
 
-# --- 硬件与语音参数 (补齐缺失项) ---
-LED_COUNT = 60
-LED_PIN = 18
-LED_BRIGHTNESS = 0.1
-AUDIO_OUTPUT_DEVICE = "hw:2,0"
-AUDIO_INPUT_INDEX = 1        # audio.py 需要这个名字
-MIC_INDEX = 1                # 兼容旧代码
-STT_TIMEOUT = 5              # 补齐：语音识别超时
-STT_PHRASE_LIMIT = 10        # 补齐：单句时长限制
-STT_LANGUAGE = "zh-CN"       # 补齐：语言
-
-# --- 情绪引擎 ---
-EMOTION_UPDATE_INTERVAL = 2.0
+# ================== 7. 认知决策 (LLM) 配置 ==================
+LLM_MODEL = "qwen-max"
+LLM_TEMPERATURE = 0.6
+SESSION_HISTORY_LEN = 5

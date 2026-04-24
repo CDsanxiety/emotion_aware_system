@@ -125,13 +125,24 @@ def check_memory_triggers() -> Optional[str]:
 def _safe_update_blackboard(blackboard: Optional[Blackboard], updates: Dict[str, Any]) -> None:
     if blackboard is None:
         return
+    
+    def _set(b, k, v):
+        try:
+            if k == 'user_presence':
+                # 调用合法的接口更新
+                b.update_vision(b.vision_description, v)
+            else:
+                setattr(b, k, v)
+        except AttributeError:
+            pass # 忽略属性保护导致的赋值错误
+
     if not hasattr(blackboard, "lock"):
         for k, v in updates.items():
-            setattr(blackboard, k, v)
+            _set(blackboard, k, v)
         return
     with blackboard.lock:
         for k, v in updates.items():
-            setattr(blackboard, k, v)
+            _set(blackboard, k, v)
 
 
 class GlobalAgentState:
