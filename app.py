@@ -4,6 +4,8 @@
 import time
 import os
 import threading
+from pickle import FALSE
+
 import cv2
 import gradio as gr
 from concurrent.futures import ThreadPoolExecutor
@@ -36,8 +38,8 @@ def play_system_audio(event_type):
     if file_path and os.path.exists(file_path):
         from config import AUDIO_OUTPUT_DEVICE
         logger.info(f"[Audio] 正在播放音效: {file_path} -> {AUDIO_OUTPUT_DEVICE}")
-        # 指定声卡设备播放
-        os.system(f"mpg123 -a {AUDIO_OUTPUT_DEVICE} {file_path} > /dev/null 2>&1 &")
+        # 去掉 &，强制阻塞播放，防止在播放期间后台开启录音和视觉导致 USB 硬件争抢锁死
+        os.system(f"mpg123 -a {AUDIO_OUTPUT_DEVICE} {file_path} > /dev/null 2>&1")
     else:
         logger.warning(f"[Audio] 音效文件不存在: {file_path}")
 
@@ -115,19 +117,30 @@ with gr.Blocks(theme=gr.themes.Soft(), title="微影听镜") as demo:
     )
 
 if __name__ == "__main__":
+    logger.info("================ 系统初始化开始 ================")
+    
+    # 1. 优先挂载 ROS 底层物理链路
+    from ros_client import global_ros_manager
+    global_ros_manager.connect()
+    
+    # 2. 播放开机音效（阻塞等待播放完毕，宣告声卡就绪）
     play_system_audio("startup")
-
-    # 启动自主循环
+    
+    # 3. 启动后台自主感知与决策大循环
+    logger.info("正在拉起后台 Agent 感知大循环...")
     global_agent_loop = start_agentic_main_loop(
         blackboard=global_blackboard,
         enable_tts=True,
         camera_index=CAMERA_INDEX
     )
 
+    # 4. 最后启动前端控制台界面
     try:
-        demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+        demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
     finally:
         set_system_shutting_down(True)
+        import vision
+        vision.release_global_camera()
         play_system_audio("shutdown")
         if global_agent_loop: global_agent_loop.stop()
         global_ros_manager.shutdown()

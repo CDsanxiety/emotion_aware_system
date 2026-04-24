@@ -1,4 +1,6 @@
 import socket
+import os
+import subprocess
 import speech_recognition as sr
 from config import STT_TIMEOUT, STT_PHRASE_LIMIT, STT_LANGUAGE, AUDIO_INPUT_INDEX
 from utils import logger
@@ -26,20 +28,40 @@ def recognize_speech(timeout: int = STT_TIMEOUT, phrase_time_limit: int = STT_PH
     if _system_shutting_down:
         return ""
     try:
-        # 💡 使用 USB 声卡支持的 48000Hz
-        with sr.Microphone(device_index=AUDIO_INPUT_INDEX, sample_rate=48000) as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.8)
-            logger.info(">>> 正在聆听 (16000Hz)...")
-            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+        from config import AUDIO_INPUT_INDEX
+        temp_audio = "temp_record.wav"
+        
+        logger.info(f">>> 正在聆听 (使用 arecord plughw:{AUDIO_INPUT_INDEX})...")
+        cmd = ["arecord", "-D", f"plughw:{AUDIO_INPUT_INDEX}", "-d", str(phrase_time_limit), "-f", "cd", "-q", temp_audio]
+        
+        # 使用 subprocess，并比限定时长多给 2 秒缓冲时间，超时立刻操作系统级击杀
+        try:
+            subprocess.run(cmd, timeout=phrase_time_limit + 2, check=False)
+        except subprocess.TimeoutExpired:
+            logger.error(f"[Audio] 录音底层驱动无响应卡死，已强制熔断 (超时 {phrase_time_limit+2}s)")
+            return ""
+        
+        if not os.path.exists(temp_audio) or os.path.getsize(temp_audio) < 100:
+            logger.debug("录音文件为空或未生成")
+            return ""
 
-            if not _check_network():
-                logger.error("网络连接失败，无法使用 STT")
-                return ""
-            text = recognizer.recognize_google(audio, language=STT_LANGUAGE)
+        if not _check_network():
+            logger.error("网络连接失败，无法使用 STT")
+            return ""
+
+        # 读取生成的音频文件进行识别
+        with sr.AudioFile(temp_audio) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language=STT_LANGUAGE)
             logger.info(f"你说: {text}")
             return text.strip()
+            
+    except sr.UnknownValueError:
+        # 没有识别到有效语音的正常情况，不需要打印堆栈
+        logger.debug("未识别到清晰语音")
+        return ""
     except Exception as e:
-        logger.debug(f"语音捕获未触发: {e}")
+        logger.debug(f"语音捕获未触发或识别错误: {e}")
         return ""
 
 

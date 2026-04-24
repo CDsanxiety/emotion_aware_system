@@ -114,7 +114,7 @@ def check_memory_triggers() -> Optional[str]:
     
     # 检索长期记忆中的生日信息
     birthday_query = f"今天是{today}，用户的生日是什么时候？"
-    memory_result = global_memory.query(birthday_query)
+    memory_result = global_memory.recall(birthday_query)
     
     if "生日" in memory_result and today in memory_result:
         return "今天是你生日"
@@ -252,150 +252,143 @@ def _agent_worker(
             # 1. 获取当前观测
             if (now - last_vision_time) >= vision_interval_sec:
                 last_vision_time = now
-                cap = None
                 try:
-                    # 临时打开摄像头
-                    cap = cv2.VideoCapture(camera_index)
-                    if cap.isOpened():
-                        # play_system_audio("camara") # 已移除，减少依赖
-                        logger.info("[视觉] 正在捕获画面...")
-                        ok, frame = cap.read()
-                        if ok and frame is not None:
-                            # 1. 用户身份识别
-                            user_identity = recognize_user(face_image=frame)
-                            user_id = user_identity.user_id if user_identity else "unknown"
-                            user_name = user_identity.name if user_identity else "主人"
-                            user_type = user_identity.user_type.value if user_identity else "unknown"
+                    logger.info("[视觉] 正在捕获画面...")
+                    frame = vision.grab_frame()
+                    if frame is not None:
+                        # 1. 用户身份识别
+                        user_identity = recognize_user(face_image=frame)
+                        user_id = user_identity.user_id if user_identity else "unknown"
+                        user_name = user_identity.name if user_identity else "主人"
+                        user_type = user_identity.user_type.value if user_identity else "unknown"
+                        
+                        # 2. 图像预处理与分析
+                        decision_tracer.start_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id)
+                        vr = vision.process_image(frame)
+                        decision_tracer.end_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id=user_id)
+                        
+                        # 兼容元组 (desc, fallback) 和纯字符串的返回
+                        if isinstance(vr, tuple) and len(vr) >= 1:
+                            vision_desc = (vr[0] or "").strip()
+                        else:
+                            vision_desc = str(vr).strip()
+                        presence = _infer_presence_from_vision(vision_desc)
+                        
+                        # 检查是否正在用户交互，如果是，则不更新黑板数据，避免状态冲突
+                        if not _global_state.is_interacting():
+                            _safe_update_blackboard(
+                                blackboard,
+                                {
+                                    "current_vision_desc": vision_desc,
+                                    "user_presence": presence,
+                                    "current_user_id": user_id,
+                                    "current_user_name": user_name,
+                                    "current_user_type": user_type,
+                                },
+                            )
                             
-                            # 2. 图像预处理与分析
-                            decision_tracer.start_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id)
-                            vr = vision.process_image(frame)
-                            decision_tracer.end_latency_tracking(NodeType.PERCEPTION, ModelType.LOCAL, user_id=user_id)
-                            vision_desc = (vr.get("description") or "").strip()
-                            presence = _infer_presence_from_vision(vision_desc)
+                        # 3. 检测场景触发事件
+                        scene_trigger = detect_scene_triggers(vision_desc)
+                        if scene_trigger and _global_state.can_trigger_proactive():
+                            _global_state.last_proactive_time = time.time()
+                            logger.info(f"[场景触发] 检测到: {scene_trigger}")
                             
-                            # 检查是否正在用户交互，如果是，则不更新黑板数据，避免状态冲突
-                            if not _global_state.is_interacting():
-                                _safe_update_blackboard(
-                                    blackboard,
-                                    {
-                                        "current_vision_desc": vision_desc,
-                                        "user_presence": presence,
-                                        "current_user_id": user_id,
-                                        "current_user_name": user_name,
-                                        "current_user_type": user_type,
-                                    },
-                                )
+                            # 构建场景触发的提示
+                            if scene_trigger == "主人回家了":
+                                prompt_text = f"{user_name}刚回家，用温暖的语气问候并欢迎{user_name}。"
+                            elif scene_trigger == "主人看起来很累":
+                                prompt_text = f"{user_name}看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
+                            elif scene_trigger == "环境光线突然变暗":
+                                prompt_text = f"环境光线突然变暗，询问{user_name}是否需要开灯或其他帮助。"
+                            else:
+                                prompt_text = f"检测到场景: {scene_trigger}，用适当的语气回应{user_name}。"
                             
-                            # 3. 检测场景触发事件
-                            scene_trigger = detect_scene_triggers(vision_desc)
-                            if scene_trigger and _global_state.can_trigger_proactive():
-                                _global_state.last_proactive_time = time.time()
-                                logger.info(f"[场景触发] 检测到: {scene_trigger}")
-                                
-                                # 构建场景触发的提示
-                                if scene_trigger == "主人回家了":
-                                    prompt_text = f"{user_name}刚回家，用温暖的语气问候并欢迎{user_name}。"
-                                elif scene_trigger == "主人看起来很累":
-                                    prompt_text = f"{user_name}看起来很累，用关心的语气询问是否需要帮助，并提供休息建议。"
-                                elif scene_trigger == "环境光线突然变暗":
-                                    prompt_text = f"环境光线突然变暗，询问{user_name}是否需要开灯或其他帮助。"
-                                else:
-                                    prompt_text = f"检测到场景: {scene_trigger}，用适当的语气回应{user_name}。"
-                                
-                                # 执行主动关心动作
-                                decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
-                                res, audio_path = get_response(
-                                    "neutral",
-                                    prompt_text,
-                                    enable_tts=enable_tts,
-                                    vision_desc=vision_desc,
-                                )
-                                decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
-                                
-                                proactive_result = ProactiveCareResult(
-                                    reply=res.get("reply", "") if isinstance(res, dict) else "",
-                                    audio_path=audio_path,
-                                    emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
-                                    action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
-                                )
-                                
-                                # 发布主动关心到 ROS
-                                proactive_msg = {
-                                    "type": "proactive_care",
-                                    "reply": proactive_result.reply,
-                                    "emotion": proactive_result.emotion,
-                                    "action": proactive_result.action,
-                                }
-                                ros_manager.publish_action(proactive_msg)
-                                
-                                _global_state.set_pending_proactive(proactive_result)
-                                
-                                if on_proactive_output is not None:
-                                    try:
-                                        on_proactive_output(proactive_result)
-                                    except Exception as e:
-                                        print(f"主动关心输出处理失败: {e}")
+                            # 执行主动关心动作
+                            decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
+                            res, audio_path = get_response(
+                                "neutral",
+                                prompt_text,
+                                enable_tts=enable_tts,
+                                vision_desc=vision_desc,
+                            )
+                            decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
                             
-                            # 4. 检查长期记忆触发事件
-                            if presence:
-                                decision_tracer.start_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id)
-                                memory_trigger = check_memory_triggers()
-                                decision_tracer.end_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id=user_id)
-                                if memory_trigger and _global_state.can_trigger_proactive():
-                                    _global_state.last_proactive_time = time.time()
-                                    logger.info(f"[记忆触发] 检测到: {memory_trigger}")
-                                    
-                                    # 构建记忆触发的提示
-                                    if memory_trigger == "今天是你生日":
-                                        prompt_text = f"今天是{user_name}的生日，播放生日快乐音乐并送上温馨的生日祝福。"
-                                        # 这里可以添加播放音乐的逻辑
-                                    else:
-                                        prompt_text = f"记忆触发: {memory_trigger}，用适当的语气回应{user_name}。"
-                                    
-                                    # 执行主动关心动作
-                                    decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
-                                    res, audio_path = get_response(
-                                        "happy",
-                                        prompt_text,
-                                        enable_tts=enable_tts,
-                                        vision_desc=vision_desc,
-                                    )
-                                    decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
-                                    
-                                    proactive_result = ProactiveCareResult(
-                                        reply=res.get("reply", "") if isinstance(res, dict) else "",
-                                        audio_path=audio_path,
-                                        emotion=res.get("emotion", "happy") if isinstance(res, dict) else "happy",
-                                        action=res.get("action", "播放音乐") if isinstance(res, dict) else "播放音乐",
-                                    )
-                                    
-                                    # 发布主动关心到 ROS
-                                    proactive_msg = {
-                                        "type": "proactive_care",
-                                        "reply": proactive_result.reply,
-                                        "emotion": proactive_result.emotion,
-                                        "action": proactive_result.action,
-                                    }
-                                    ros_manager.publish_action(proactive_msg)
-                                    
-                                    _global_state.set_pending_proactive(proactive_result)
-                                    
-                                    if on_proactive_output is not None:
-                                        try:
-                                            on_proactive_output(proactive_result)
-                                        except Exception as e:
-                                            print(f"主动关心输出处理失败: {e}")
+                            proactive_result = ProactiveCareResult(
+                                reply=res.get("reply", "") if isinstance(res, dict) else "",
+                                audio_path=audio_path,
+                                emotion=res.get("emotion", "neutral") if isinstance(res, dict) else "neutral",
+                                action=res.get("action", "无动作") if isinstance(res, dict) else "无动作",
+                            )
+                            
+                            # 发布主动关心到 ROS
+                            proactive_msg = {
+                                "type": "proactive_care",
+                                "reply": proactive_result.reply,
+                                "emotion": proactive_result.emotion,
+                                "action": proactive_result.action,
+                            }
+                        ros_manager.publish_action(proactive_msg)
+                        
+                        _global_state.set_pending_proactive(proactive_result)
+                        
+                        if on_proactive_output is not None:
+                            try:
+                                on_proactive_output(proactive_result)
+                            except Exception as e:
+                                print(f"主动关心输出处理失败: {e}")
+                    
+                    # 4. 检查长期记忆触发事件
+                    if presence:
+                        decision_tracer.start_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id)
+                        memory_trigger = check_memory_triggers()
+                        decision_tracer.end_latency_tracking(NodeType.MEMORY_ASSOCIATION, ModelType.LOCAL, user_id=user_id)
+                        if memory_trigger and _global_state.can_trigger_proactive():
+                            _global_state.last_proactive_time = time.time()
+                            logger.info(f"[记忆触发] 检测到: {memory_trigger}")
+                            
+                            # 构建记忆触发的提示
+                            if memory_trigger == "今天是你生日":
+                                prompt_text = f"今天是{user_name}的生日，播放生日快乐音乐并送上温馨的生日祝福。"
+                                # 这里可以添加播放音乐的逻辑
+                            else:
+                                prompt_text = f"记忆触发: {memory_trigger}，用适当的语气回应{user_name}。"
+                            
+                            # 执行主动关心动作
+                            decision_tracer.start_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id)
+                            res, audio_path = get_response(
+                                "happy",
+                                prompt_text,
+                                enable_tts=enable_tts,
+                                vision_desc=vision_desc,
+                            )
+                            decision_tracer.end_latency_tracking(NodeType.EMOTION_DETECTION, ModelType.CLOUD, user_id=user_id)
+                            
+                            proactive_result = ProactiveCareResult(
+                                reply=res.get("reply", "") if isinstance(res, dict) else "",
+                                audio_path=audio_path,
+                                emotion=res.get("emotion", "happy") if isinstance(res, dict) else "happy",
+                                action=res.get("action", "播放音乐") if isinstance(res, dict) else "播放音乐",
+                            )
+                            
+                            # 发布主动关心到 ROS
+                            proactive_msg = {
+                                "type": "proactive_care",
+                                "reply": proactive_result.reply,
+                                "emotion": proactive_result.emotion,
+                                "action": proactive_result.action,
+                            }
+                            ros_manager.publish_action(proactive_msg)
+                            
+                            _global_state.set_pending_proactive(proactive_result)
+                            
+                            if on_proactive_output is not None:
+                                try:
+                                    on_proactive_output(proactive_result)
+                                except Exception as e:
+                                    print(f"主动关心输出处理失败: {e}")
                 except Exception as e:
                     print(f"[agent_loop] 场景检测出错: {e}")
                     traceback.print_exc()
-                finally:
-                    # 无论如何都释放摄像头
-                    if cap is not None:
-                        try:
-                            cap.release()
-                        except Exception:
-                            pass
 
             # 3. 语音观测
             user_text = ""

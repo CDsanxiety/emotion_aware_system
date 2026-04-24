@@ -16,6 +16,41 @@ except ImportError:
     HAS_FER = False
 
 
+import cv2
+import time
+from utils import logger
+from config import CAMERA_INDEX
+
+_global_cap = None
+
+def get_global_camera():
+    """获取单例全局摄像头，避免频繁开启引发树莓派死锁"""
+    global _global_cap
+    if _global_cap is None:
+        logger.info(f"[Vision] 正在初始化全局摄像头 (Index: {CAMERA_INDEX})...")
+        _global_cap = cv2.VideoCapture(CAMERA_INDEX)
+        _global_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        _global_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        _global_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        for _ in range(3): _global_cap.grab() # 预热
+    return _global_cap
+
+def release_global_camera():
+    global _global_cap
+    if _global_cap is not None:
+        _global_cap.release()
+        _global_cap = None
+        logger.info("[Vision] 已释放全局摄像头。")
+
+def grab_frame():
+    """对外提供统一的图像抓取接口"""
+    cap = get_global_camera()
+    ret, frame = cap.read()
+    if not ret:
+        logger.error("[Vision] 摄像头帧抓取失败。")
+        return None
+    return frame
+
 def process_image(frame):
     """
     处理图像：
@@ -27,19 +62,9 @@ def process_image(frame):
 
     # 如果 Gradio 没传画面，尝试直接打开本地摄像头
     if frame is None:
-        # 使用 V4L2 后端并强制低分辨率，防止树莓派 3B 超时
-        cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        frame = grab_frame()
         
-        # 预热一下驱动
-        for _ in range(3): cap.grab() 
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            logger.error("[Vision] 摄像头读取失败")
+        if frame is None:
             return "摄像头连接超时或权限不足", True
         is_fallback = True
 
