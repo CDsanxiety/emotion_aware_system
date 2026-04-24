@@ -76,8 +76,7 @@ python app.py
 6. 访问 Web 界面
 启动成功后，浏览器打开：`http://127.0.0.1:7860`
 
-<<<<<<< HEAD
-=======
+
 ## 🧪 测试语音识别功能
 
 ### 运行语音识别测试
@@ -96,16 +95,14 @@ python test_aliyun_stt.py
 - **网络异常**：检查网络连接是否正常
 - **API 错误**：检查阿里云密钥是否正确配置
 
->>>>>>> 483f2a96306b03f52efde3fc5895cf74d9121b3f
+
 ## 🔧 集成说明
 
 ### 确保语音识别正常工作
 1. **检查阿里云密钥配置**：
-<<<<<<< HEAD
    - 确认 `.env` 文件中的 `ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET`、`ALIYUN_APP_KEY` 已正确填写
-=======
-   - 确认 `audio.py` 中的 `ALI_ACCESS_KEY_ID`、`ALI_ACCESS_KEY_SECRET`、`ALI_APPKEY` 已正确填写
->>>>>>> 483f2a96306b03f52efde3fc5895cf74d9121b3f
+   - 或者确认 `audio.py` 中的 `ALI_ACCESS_KEY_ID`、`ALI_ACCESS_KEY_SECRET`、`ALI_APPKEY` 已正确填写
+
    - 确保密钥具有智能语音交互服务的权限
 
 2. **检查依赖安装**：
