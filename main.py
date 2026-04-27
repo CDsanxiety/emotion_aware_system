@@ -35,7 +35,14 @@ def main():
     try:
         orchestrator.run()
     except KeyboardInterrupt:
-        signal_handler(None, None)
+        pass
+    except Exception as e:
+        logger.error(f"[Main] 运行时错误: {e}")
+    finally:
+        print("\n[System] 正在执行安全关机程序...")
+        orchestrator.hw.play_sound("music/shutdown.mp3", wait=True)
+        orchestrator.stop()
+        sys.exit(0)
 
 if __name__ == "__main__":
     # 确保 music 文件夹存在

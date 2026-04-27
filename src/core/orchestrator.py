@@ -69,9 +69,7 @@ class EmotionSystemOrchestrator:
         self.hw.set_led_emotion(emotion)
         
         # 播放语音 (TTS)
-        audio_file = tts.text_to_speech(reply)
-        if audio_file:
-            self.hw.play_sound(audio_file, wait=True)
+        tts.speak(reply)
         
         # 如果需要播放背景音乐 (test.mp3)
         if action.startswith("music"):
