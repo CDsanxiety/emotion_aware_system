@@ -20,9 +20,7 @@ __pycache__/
 # 临时生成文件
 logs/
 *.log
-*.mp3
 captured_frame.jpg
-check_audio.mp3
 
 # 资产文件
 .agents/

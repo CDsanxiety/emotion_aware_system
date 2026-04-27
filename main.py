@@ -22,9 +22,9 @@ def main():
     # 注册退出信号
     signal.signal(signal.SIGINT, signal_handler)
 
-    # 1. 播放启动音
+    # 1. 播放启动音 (改为非阻塞，防止音箱冲突导致系统卡死)
     logger.info("--- 🚀 系统启动中 ---")
-    orchestrator.hw.play_sound("music/startup.mp3", wait=True)
+    orchestrator.hw.play_sound("music/startup.mp3", wait=False)
 
     # 2. 运行主循环
     print("\n" + "="*40)
@@ -40,7 +40,7 @@ def main():
         logger.error(f"[Main] 运行时错误: {e}")
     finally:
         print("\n[System] 正在执行安全关机程序...")
-        orchestrator.hw.play_sound("music/shutdown.mp3", wait=True)
+        orchestrator.hw.play_sound("music/shutdown.mp3", wait=False)
         orchestrator.stop()
         sys.exit(0)
 

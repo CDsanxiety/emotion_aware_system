@@ -25,6 +25,12 @@ class PhysicalInterface:
 
     def play_sound(self, file_path, wait=False):
         """直接调用 mpg123 播放音频"""
+        # 兼容性修复：处理 shutdow.mp3 拼写错误
+        if "shutdown.mp3" in file_path and not os.path.exists(file_path):
+            alt_path = file_path.replace("shutdown.mp3", "shutdow.mp3")
+            if os.path.exists(alt_path):
+                file_path = alt_path
+
         if not os.path.exists(file_path):
             logger.warning(f"[Hardware] 找不到音效文件: {file_path}")
             return
