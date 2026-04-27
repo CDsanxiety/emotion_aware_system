@@ -1,5 +1,6 @@
 # src/hardware/physical_interface.py
 import time
+import os
 import subprocess
 import board
 import neopixel
@@ -9,12 +10,14 @@ from src.utils.logger import logger
 class PhysicalInterface:
     def __init__(self):
         try:
+            # 确保使用正确的 BCM 引脚
             self.pixels = neopixel.NeoPixel(
                 getattr(board, f"D{LED_PIN}"), 
                 LED_COUNT, 
                 brightness=LED_BRIGHTNESS, 
-                auto_write=False
+                auto_write=True # 改为自动写入，提高响应速度
             )
+            self.pixels.fill((0, 0, 0))
             logger.info(f"[Hardware] LED 接口初始化成功 (Pin: {LED_PIN})")
         except Exception as e:
             logger.error(f"[Hardware] LED 初始化失败: {e}")
@@ -46,14 +49,17 @@ class PhysicalInterface:
             "neutral": (255, 100, 0),  # 暖黄
         }
         
-        color = colors.get(emotion, (255, 255, 255)) # 默认白
-        self.pixels.fill(color)
-        self.pixels.show()
-        logger.info(f"[Hardware] 灯光切换为: {emotion} 模式")
+        color = colors.get(emotion, (255, 255, 255)) 
+        try:
+            self.pixels.fill(color)
+            # auto_write=True 时不需要手动 show()
+            logger.info(f"[Hardware] 灯光切换为: {emotion} ({color})")
+        except Exception as e:
+            logger.error(f"[Hardware] 灯光设置失败: {e}")
 
     def clear_led(self):
         if self.pixels:
-            self.pixels.fill((0, 0, 0))
-            self.pixels.show()
-
-import os
+            try:
+                self.pixels.fill((0, 0, 0))
+            except:
+                pass

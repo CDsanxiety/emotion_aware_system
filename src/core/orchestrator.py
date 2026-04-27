@@ -3,7 +3,7 @@ import threading
 import cv2
 from src.cloud import brain, stt, tts
 from src.hardware.physical_interface import PhysicalInterface
-from src.core.config import VISION_INTERVAL, CAMERA_INDEX
+from src.core.config import CAMERA_INDEX
 from src.utils.logger import logger
 
 class EmotionSystemOrchestrator:
@@ -14,10 +14,17 @@ class EmotionSystemOrchestrator:
         logger.info("[Orchestrator] 初始化完成，准备进入情感循环")
 
     def capture_vision(self):
-        """抓拍一帧画面"""
+        """抓拍一帧画面 (清空缓冲区以确保最新)"""
+        if not self.cap or not self.cap.isOpened():
+            return None
+            
+        # 连续读取并丢弃 5 帧，确保拿到硬件队列中最新的画面
+        for _ in range(5):
+            self.cap.grab()
+        
         ret, frame = self.cap.read()
         if ret:
-            logger.info("[Vision] 抓拍成功")
+            logger.info("[Vision] 抓拍成功 (最新帧)")
             return frame
         logger.warning("[Vision] 抓拍失败")
         return None
@@ -27,14 +34,14 @@ class EmotionSystemOrchestrator:
         logger.info("\n--- 🧠 启动新一轮感知 ---")
         
         # 1. 并发感知：拍照和录音同时进行
-        vision_result = []
-        audio_result = []
+        vision_result = [None]
+        audio_result = [""]
 
         def get_vision():
-            vision_result.append(self.capture_vision())
+            vision_result[0] = self.capture_vision()
         
         def get_audio():
-            audio_result.append(stt.capture_and_transcribe())
+            audio_result[0] = stt.capture_and_transcribe()
 
         t1 = threading.Thread(target=get_vision)
         t2 = threading.Thread(target=get_audio)
@@ -48,6 +55,7 @@ class EmotionSystemOrchestrator:
         frame = vision_result[0]
         text = audio_result[0]
 
+        # 即使文字为空（没说话），只要有画面，我们也让大脑分析表情
         if not text and frame is None:
             return
 
@@ -65,7 +73,6 @@ class EmotionSystemOrchestrator:
         print(f">>>> [智能体回复]: {reply}")
 
         # 4. 硬件响应：灯光 + 语音 + 音乐
-        # 先切灯光
         self.hw.set_led_emotion(emotion)
         
         # 播放语音 (TTS)
