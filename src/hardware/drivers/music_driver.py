@@ -16,15 +16,18 @@ def on_action_received(msg_data):
         # 映射动作到音乐文件
         music_map = {
             "music_happy": "music/happy.mp3",
-            "music_calm": "music/calm.mp3"
+            "music_calm": "music/calm.mp3",
+            "test": "music/test.mp3"
         }
         
-        if action in music_map:
-            file_path = music_map[action]
-            if os.path.exists(file_path):
-                logger.info(f"[Music Driver] 正在播放: {file_path}")
-                # 异步播放，不阻塞监听
-                subprocess.Popen(["mpg123", "-a", AUDIO_OUTPUT_DEVICE, "-q", file_path])
+        target_file = music_map.get(action, "music/test.mp3")
+        
+        if not os.path.exists(target_file):
+            target_file = "music/test.mp3" # 再次兜底
+            
+        if os.path.exists(target_file):
+            logger.info(f"[Music Driver] 正在播放: {target_file}")
+            subprocess.Popen(["mpg123", "-a", AUDIO_OUTPUT_DEVICE, "-q", target_file])
             else:
                 logger.warning(f"[Music Driver] 找不到文件: {file_path}")
     except Exception as e:

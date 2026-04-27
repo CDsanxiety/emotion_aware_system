@@ -1,77 +1,94 @@
 # src/core/orchestrator.py
-import time
-import cv2
 import threading
-from src.cloud import stt, tts, brain
-from src.hardware.controller import hw_controller
-from src.core.config import CAMERA_INDEX, VISION_INTERVAL, IDLE_THRESHOLD
+import cv2
+from src.cloud import brain, stt, tts
+from src.hardware.physical_interface import PhysicalInterface
+from src.core.config import VISION_INTERVAL, CAMERA_INDEX
 from src.utils.logger import logger
 
 class EmotionSystemOrchestrator:
     def __init__(self):
-        self.cap = None
+        self.hw = PhysicalInterface()
         self.running = False
-        self.last_interaction_time = time.time()
-
-    def start(self):
-        logger.info("================ 系统重构版启动 ================")
-        
-        # 1. 初始化硬件控制
-        hw_controller.connect()
-        
-        # 2. 初始化摄像头
         self.cap = cv2.VideoCapture(CAMERA_INDEX)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
-        self.running = True
-        
-        # 3. 启动主循环
-        self._main_loop()
+        logger.info("[Orchestrator] 初始化完成，准备进入情感循环")
 
-    def _main_loop(self):
+    def capture_vision(self):
+        """抓拍一帧画面"""
+        ret, frame = self.cap.read()
+        if ret:
+            logger.info("[Vision] 抓拍成功")
+            return frame
+        logger.warning("[Vision] 抓拍失败")
+        return None
+
+    def step(self):
+        """单次交互循环"""
+        logger.info("\n--- 🧠 启动新一轮感知 ---")
+        
+        # 1. 并发感知：拍照和录音同时进行
+        vision_result = []
+        audio_result = []
+
+        def get_vision():
+            vision_result.append(self.capture_vision())
+        
+        def get_audio():
+            audio_result.append(stt.capture_and_transcribe())
+
+        t1 = threading.Thread(target=get_vision)
+        t2 = threading.Thread(target=get_audio)
+        
+        t1.start()
+        t2.start()
+        
+        t1.join()
+        t2.join()
+
+        frame = vision_result[0]
+        text = audio_result[0]
+
+        if not text and frame is None:
+            return
+
+        # 2. 云端思考
+        response = brain.think(frame, text)
+        if not response:
+            return
+
+        emotion = response.get("emotion", "neutral")
+        reply = response.get("reply", "我还在学习中...")
+        action = response.get("action", "none")
+
+        # 3. 屏幕显示结果
+        print(f"\n>>>> [智能体检测到情绪]: {emotion.upper()}")
+        print(f">>>> [智能体回复]: {reply}")
+
+        # 4. 硬件响应：灯光 + 语音 + 音乐
+        # 先切灯光
+        self.hw.set_led_emotion(emotion)
+        
+        # 播放语音 (TTS)
+        audio_file = tts.text_to_speech(reply)
+        if audio_file:
+            self.hw.play_sound(audio_file, wait=True)
+        
+        # 如果需要播放背景音乐 (test.mp3)
+        if action.startswith("music"):
+            self.hw.play_sound("music/test.mp3")
+
+    def run(self):
+        self.running = True
         while self.running:
             try:
-                # [阶段 1: 语音采集]
-                # 阻塞式监听（可改为触发式）
-                voice_text = stt.capture_and_transcribe()
-                
-                # [阶段 2: 视觉采样]
-                ret, frame = self.cap.read()
-                if not ret: frame = None
-                
-                # [阶段 3: 云端推理]
-                if voice_text or (time.time() - self.last_interaction_time > IDLE_THRESHOLD):
-                    if not voice_text:
-                        logger.info("[Orchestrator] 触发主动关心模式...")
-                    
-                    # 思考
-                    result = brain.think(frame, voice_text)
-                    
-                    if result:
-                        self.last_interaction_time = time.time()
-                        
-                        # [阶段 4: 硬件执行]
-                        # 4.1 动作下发 (LED等)
-                        hw_controller.execute(result.get("action"), result.get("emotion"))
-                        
-                        # 4.2 语音回复 (TTS)
-                        tts.speak(result.get("reply"))
-                
-                # 采样间隔
-                time.sleep(0.5)
-                
-            except KeyboardInterrupt:
-                self.running = False
+                self.step()
             except Exception as e:
                 logger.error(f"[Orchestrator] 循环异常: {e}")
-                time.sleep(2)
+                break
 
     def stop(self):
         self.running = False
-        if self.cap: self.cap.release()
-        logger.info("系统已安全关闭")
-
-if __name__ == "__main__":
-    orchestrator = EmotionSystemOrchestrator()
-    orchestrator.start()
+        if self.cap:
+            self.cap.release()
+        self.hw.clear_led()
+        logger.info("[Orchestrator] 系统已停止")

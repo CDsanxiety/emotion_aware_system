@@ -13,13 +13,13 @@ STT_MODEL = "whisper-1"
 TTS_VOICE = "zh-CN-XiaoxiaoNeural"
 
 # ================== 2. 硬件配置 ==================
-LED_PIN = 12          # 灯带连接的 GPIO 引脚 (BCM 12)
+LED_PIN = 18          # 灯带连接的第 12 针 (BCM 18)
 LED_COUNT = 60        # 灯珠数量
 LED_BRIGHTNESS = 0.2  # 功率限制：20% 亮度，保护树莓派供电安全
 
 CAMERA_INDEX = 0
 AUDIO_INPUT_INDEX = 1  # 摄像头自带麦克风 (Card 1)
-AUDIO_OUTPUT_DEVICE = "hw:2,0" # USB 播放设备 (Card 2)
+AUDIO_OUTPUT_DEVICE = "plughw:2,0" # USB 播放设备 (Card 2)
 
 # ROS 配置
 ROS_BRIDGE_URI = os.getenv("ROS_BRIDGE_URI", "ws://localhost:9090")

@@ -1,16 +1,45 @@
 # main.py
 import sys
 import os
+import signal
+import time
 
-# 将 src 加入路径
-sys.path.append(os.path.join(os.path.dirname(__file__)))
+# 将当前目录加入路径
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.core.orchestrator import EmotionSystemOrchestrator
+from src.utils.logger import logger
 
-if __name__ == "__main__":
+def main():
     orchestrator = EmotionSystemOrchestrator()
-    try:
-        orchestrator.start()
-    except KeyboardInterrupt:
+    
+    def signal_handler(sig, frame):
+        print("\n[System] 正在执行安全关机程序...")
+        orchestrator.hw.play_sound("music/shutdown.mp3", wait=True)
         orchestrator.stop()
         sys.exit(0)
+
+    # 注册退出信号
+    signal.signal(signal.SIGINT, signal_handler)
+
+    # 1. 播放启动音
+    logger.info("--- 🚀 系统启动中 ---")
+    orchestrator.hw.play_sound("music/startup.mp3", wait=True)
+
+    # 2. 运行主循环
+    print("\n" + "="*40)
+    print("  情感感知机器人 (直连模式) 已启动")
+    print("  按下 Ctrl+C 退出系统")
+    print("="*40 + "\n")
+    
+    try:
+        orchestrator.run()
+    except KeyboardInterrupt:
+        signal_handler(None, None)
+
+if __name__ == "__main__":
+    # 确保 music 文件夹存在
+    if not os.path.exists("music"):
+        os.makedirs("music")
+        
+    main()
