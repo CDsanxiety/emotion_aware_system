@@ -13,15 +13,6 @@ from src.utils.logger import logger
 def main():
     orchestrator = EmotionSystemOrchestrator()
     
-    def signal_handler(sig, frame):
-        print("\n[System] 正在执行安全关机程序...")
-        orchestrator.hw.play_sound("music/shutdown.mp3", wait=True)
-        orchestrator.stop()
-        sys.exit(0)
-
-    # 注册退出信号
-    signal.signal(signal.SIGINT, signal_handler)
-
     # 1. 播放启动音 (改为非阻塞，防止音箱冲突导致系统卡死)
     logger.info("--- 🚀 系统启动中 ---")
     orchestrator.hw.play_sound("music/startup.mp3", wait=False)

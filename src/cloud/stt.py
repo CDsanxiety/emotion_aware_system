@@ -16,7 +16,7 @@ def capture_and_transcribe():
         # 1. 录音 (采样率 16000 符合 Paraformer 要求)
         logger.info(f"[STT] 正在录音 (最多 {STT_TIMEOUT}s)...")
         cmd = [
-            "arecord", "-D", f"plughw:{AUDIO_INPUT_INDEX}", 
+            "arecord", "-D", f"plughw:{AUDIO_INPUT_INDEX},0", 
             "-d", str(int(STT_TIMEOUT)), "-f", "S16_LE", "-r", "16000", "-c", "1", "-q", temp_audio
         ]
         subprocess.run(cmd, timeout=STT_TIMEOUT + 2)

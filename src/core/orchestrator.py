@@ -30,30 +30,13 @@ class EmotionSystemOrchestrator:
         return None
 
     def step(self):
-        """单次交互循环"""
+        """单次交互循环 (串行模式以保证 3B 稳定性)"""
         logger.info("\n--- 🧠 启动新一轮感知 ---")
         
-        # 1. 并发感知：拍照和录音同时进行
-        vision_result = [None]
-        audio_result = [""]
-
-        def get_vision():
-            vision_result[0] = self.capture_vision()
-        
-        def get_audio():
-            audio_result[0] = stt.capture_and_transcribe()
-
-        t1 = threading.Thread(target=get_vision)
-        t2 = threading.Thread(target=get_audio)
-        
-        t1.start()
-        t2.start()
-        
-        t1.join()
-        t2.join()
-
-        frame = vision_result[0]
-        text = audio_result[0]
+        # 1. 顺序感知：先拍照，拍完再录音
+        # 这样可以避免麦克风和摄像头同时抢占 USB 总线
+        frame = self.capture_vision()
+        text = stt.capture_and_transcribe()
 
         # 即使文字为空（没说话），只要有画面，我们也让大脑分析表情
         if not text and frame is None:
