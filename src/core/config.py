@@ -15,7 +15,7 @@ TTS_VOICE = "zh-CN-XiaoxiaoNeural"
 # ================== 2. 硬件配置 ==================
 LED_PIN = 18          # 灯带连接的第 12 针 (BCM 18)
 LED_COUNT = 60        # 灯珠数量
-LED_BRIGHTNESS = 0.2  # 功率限制：20% 亮度，保护树莓派供电安全
+LED_BRIGHTNESS = 0.05 # 降低功率，确保 USB 硬件稳定
 
 CAMERA_INDEX = 0
 AUDIO_INPUT_INDEX = 1  # 摄像头自带麦克风 (Card 1)
