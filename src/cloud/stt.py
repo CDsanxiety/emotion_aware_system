@@ -24,11 +24,29 @@ def capture_and_transcribe():
         if not os.path.exists(temp_audio) or os.path.getsize(temp_audio) < 1000:
             return ""
 
-        # 2. 调用阿里云原生 Transcription 接口 (针对本地文件)
+        # --- 新增：使用 ffmpeg 进行深度降噪 ---
+        cleaned_audio = "cleaned_stt.wav"
+        logger.info("[STT] 正在使用 FFmpeg 进行强效降噪...")
+        # af: highpass(过滤电流声), lowpass(过滤高频刺耳声), afftdn(FFT自适应降噪)
+        cmd_clean = [
+            "ffmpeg", "-i", temp_audio, 
+            "-af", "highpass=f=200, lowpass=f=3500, afftdn", 
+            "-ar", "16000", "-y", cleaned_audio
+        ]
+        # 运行降噪，静默处理
+        subprocess.run(cmd_clean, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if not os.path.exists(cleaned_audio):
+            logger.warning("[STT] 降噪失败，使用原始音频")
+            final_audio = temp_audio
+        else:
+            final_audio = cleaned_audio
+
+        # 2. 调用阿里云原生 Transcription 接口 (针对处理后的文件)
         logger.info("[STT] 正在请求阿里云 Paraformer 转写服务...")
         
         # 将本地文件路径转换为符合 SDK 要求的 file:// 格式
-        audio_file_path = 'file://' + os.path.abspath(temp_audio)
+        audio_file_path = 'file://' + os.path.abspath(final_audio)
         
         task_response = Transcription.async_call(
             model='paraformer-v1',
@@ -54,5 +72,6 @@ def capture_and_transcribe():
         logger.error(f"[STT] 异常: {e}")
         return ""
     finally:
-        if os.path.exists(temp_audio):
-            os.remove(temp_audio)
+        for f in [temp_audio, "cleaned_stt.wav"]:
+            if os.path.exists(f):
+                os.remove(f)
