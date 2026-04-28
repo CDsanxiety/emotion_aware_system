@@ -2,6 +2,7 @@
 import os
 import subprocess
 import dashscope
+import re
 from dashscope.audio.asr import Transcription
 from src.core.config import QWEN_API_KEY, AUDIO_INPUT_INDEX, STT_TIMEOUT
 from src.utils.logger import logger
@@ -10,68 +11,65 @@ from src.utils.logger import logger
 dashscope.api_key = QWEN_API_KEY
 
 def capture_and_transcribe():
-    """使用阿里云原生 Paraformer (Transcription 接口) 进行音频文件转写"""
+    """诊断版 STT：使用 FFmpeg 录音并进行音量检测"""
     temp_audio = "temp_stt.wav"
+    
     try:
-        # 1. 录音
-        logger.info(f"[STT] 正在录音 (最多 {STT_TIMEOUT}s)...")
-        cmd = [
-            "arecord", "-D", f"plughw:{AUDIO_INPUT_INDEX},0", 
-            "-d", str(int(STT_TIMEOUT)), "-f", "S16_LE", "-r", "16000", "-c", "1", "-q", temp_audio
+        # 1. 使用 FFmpeg 录音 (自带增益和基础降噪)
+        logger.info(f"[STT] 正在录音 (通过 FFmpeg, 长度: {STT_TIMEOUT}s)...")
+        # 增加 15dB 增益，强行拉高麦克风信号
+        cmd_record = [
+            "ffmpeg", "-y", "-f", "alsa", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
+            "-t", str(int(STT_TIMEOUT)), 
+            "-af", "volume=15dB, afftdn", 
+            "-ar", "16000", "-ac", "1", temp_audio
         ]
-        subprocess.run(cmd, timeout=STT_TIMEOUT + 2)
-        
+        # 运行录音，捕获输出以备诊断
+        subprocess.run(cmd_record, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         if not os.path.exists(temp_audio) or os.path.getsize(temp_audio) < 1000:
+            logger.error("[STT] 录音文件不存在或太小")
             return ""
 
-        # --- 新增：使用 ffmpeg 进行深度降噪 + 音量增益 ---
-        cleaned_audio = "cleaned_stt.wav"
-        logger.info("[STT] 正在进行 FFmpeg 降噪与音量增强 (+10dB)...")
-        # volume=10dB: 增强音量; highpass/lowpass/afftdn: 降噪
-        cmd_clean = [
-            "ffmpeg", "-i", temp_audio, 
-            "-af", "volume=10dB, highpass=f=200, lowpass=f=3500, afftdn", 
-            "-ar", "16000", "-y", cleaned_audio
+        # 2. 诊断音量：检测最大电平 (max_volume)
+        cmd_detect = [
+            "ffmpeg", "-i", temp_audio, "-af", "volumedetect", "-f", "null", "-"
         ]
-        # 运行降噪，静默处理
-        subprocess.run(cmd_clean, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(cmd_detect, capture_output=True, text=True)
+        # 匹配日志中的 max_volume: -20.5 dB 这种格式
+        match = re.search(r"max_volume: ([\-\d\.]+) dB", result.stderr)
+        if match:
+            max_vol = float(match.group(1))
+            logger.info(f"[STT] 录音诊断 - 最大音量: {max_vol} dB")
+            if max_vol < -40:
+                logger.warning("[STT] 警告：录音音量极低，可能麦克风没接好或被静音！")
         
-        if not os.path.exists(cleaned_audio):
-            logger.warning("[STT] 降噪失败，使用原始音频")
-            final_audio = temp_audio
-        else:
-            final_audio = cleaned_audio
-
-        # 2. 调用阿里云原生 Transcription 接口 (针对处理后的文件)
-        logger.info("[STT] 正在请求阿里云 Paraformer 转写服务...")
-        
-        # 将本地文件路径转换为符合 SDK 要求的 file:// 格式
-        audio_file_path = 'file://' + os.path.abspath(final_audio)
+        # 3. 调用阿里云原生 Transcription 接口
+        logger.info("[STT] 正在请求阿里云 Paraformer...")
+        audio_file_path = 'file://' + os.path.abspath(temp_audio)
         
         task_response = Transcription.async_call(
             model='paraformer-v1',
             file_urls=[audio_file_path]
         )
         
-        # 等待任务完成 (通常 1-2 秒)
         status = Transcription.wait(task_response)
         
         if status.status_code == 200:
-            # 提取转写文本
             results = status.output.get('results', [])
             if results:
                 text = results[0].get('transcription', "").strip()
-                logger.info(f"[STT] 识别结果: {text}")
+                logger.info(f"[STT] 最终识别结果: {text}")
                 return text
         else:
-            logger.error(f"[STT] 转写任务失败: {status.message}")
+            logger.error(f"[STT] 转写失败: {status.message}")
             
         return ""
 
     except Exception as e:
         logger.error(f"[STT] 异常: {e}")
         return ""
-    finally:
-        for f in [temp_audio, "cleaned_stt.wav"]:
-            if os.path.exists(f):
-                os.remove(f)
+    # 注意：为了诊断，我们暂时【不删除】temp_stt.wav，让你能手动听
+    # finally:
+    #     if os.path.exists(temp_audio):
+    #         os.remove(temp_audio)
