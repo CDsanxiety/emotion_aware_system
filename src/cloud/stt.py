@@ -15,13 +15,13 @@ def capture_and_transcribe():
     temp_audio = "temp_stt.wav"
     
     try:
-        # 1. 使用 FFmpeg 录音 (自带增益和基础降噪)
-        logger.info(f"[STT] 正在录音 (通过 FFmpeg, 长度: {STT_TIMEOUT}s)...")
-        # 增加 15dB 增益，强行拉高麦克风信号
+        # 1. 使用 FFmpeg 录音 (使用 44100 硬件通用采样率录制，防止爆音)
+        logger.info(f"[STT] 正在以 44100Hz 录音 (时长: {STT_TIMEOUT}s)...")
+        # 移除 15dB 增益，改用 44100 录制，之后再降采样
         cmd_record = [
-            "ffmpeg", "-y", "-f", "alsa", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
+            "ffmpeg", "-y", "-f", "alsa", "-ar", "44100", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
             "-t", str(int(STT_TIMEOUT)), 
-            "-af", "volume=15dB, afftdn", 
+            "-af", "highpass=f=200, lowpass=f=3500", # 仅保留人声频率
             "-ar", "16000", "-ac", "1", temp_audio
         ]
         # 运行录音，捕获输出以备诊断
