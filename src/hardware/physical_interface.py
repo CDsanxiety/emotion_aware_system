@@ -35,7 +35,8 @@ class PhysicalInterface:
             logger.warning(f"[Hardware] 找不到音效文件: {file_path}")
             return
         
-        cmd = ["mpg123", "-a", AUDIO_OUTPUT_DEVICE, "-q", file_path]
+        # 强制指定 alsa 输出驱动，避免 PulseAudio 报错
+        cmd = ["mpg123", "-o", "alsa", "-a", AUDIO_OUTPUT_DEVICE, "-q", file_path]
         try:
             if wait:
                 subprocess.run(cmd)
