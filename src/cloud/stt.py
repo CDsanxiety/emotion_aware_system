@@ -24,13 +24,13 @@ def capture_and_transcribe():
         if not os.path.exists(temp_audio) or os.path.getsize(temp_audio) < 1000:
             return ""
 
-        # --- 新增：使用 ffmpeg 进行深度降噪 ---
+        # --- 新增：使用 ffmpeg 进行深度降噪 + 音量增益 ---
         cleaned_audio = "cleaned_stt.wav"
-        logger.info("[STT] 正在使用 FFmpeg 进行强效降噪...")
-        # af: highpass(过滤电流声), lowpass(过滤高频刺耳声), afftdn(FFT自适应降噪)
+        logger.info("[STT] 正在进行 FFmpeg 降噪与音量增强 (+10dB)...")
+        # volume=10dB: 增强音量; highpass/lowpass/afftdn: 降噪
         cmd_clean = [
             "ffmpeg", "-i", temp_audio, 
-            "-af", "highpass=f=200, lowpass=f=3500, afftdn", 
+            "-af", "volume=10dB, highpass=f=200, lowpass=f=3500, afftdn", 
             "-ar", "16000", "-y", cleaned_audio
         ]
         # 运行降噪，静默处理

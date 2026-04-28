@@ -14,13 +14,17 @@ class EmotionSystemOrchestrator:
         logger.info("[Orchestrator] 初始化完成，准备进入情感循环")
 
     def capture_vision(self):
-        """抓拍一帧画面 (最简逻辑，减少阻塞)"""
+        """抓拍一帧画面 (通过清空缓冲区确保最新)"""
         if not self.cap or not self.cap.isOpened():
             self.cap = cv2.VideoCapture(CAMERA_INDEX)
             
+        # 连续抓取 3 帧旧数据并丢弃，解决硬件缓冲区延迟问题
+        for _ in range(3):
+            self.cap.grab()
+            
         ret, frame = self.cap.read()
         if ret:
-            logger.info("[Vision] 抓拍成功")
+            logger.info("[Vision] 抓拍成功 (已刷新缓冲区)")
             return frame
         
         # 如果读取失败，尝试重置摄像头
