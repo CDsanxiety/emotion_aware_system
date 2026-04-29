@@ -15,14 +15,15 @@ def capture_and_transcribe():
     temp_audio = "temp_stt.wav"
     
     try:
-        # 1. 使用 FFmpeg 录音 (使用 44100 硬件通用采样率录制，防止爆音)
-        logger.info(f"[STT] 正在以 44100Hz 录音 (时长: {STT_TIMEOUT}s)...")
-        # 移除 15dB 增益，改用 44100 录制，之后再降采样
+        # 1. 使用 FFmpeg 录音 (降低采样率至 16000，减轻 3B 总线压力)
+        logger.info(f"[STT] 正在以 16000Hz 录音 (时长: {STT_TIMEOUT}s)...")
+        # thread_queue_size: 防止缓冲区溢出; ar 16000: 减少数据量
         cmd_record = [
-            "ffmpeg", "-y", "-f", "alsa", "-ar", "44100", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
+            "ffmpeg", "-y", "-f", "alsa", "-thread_queue_size", "1024", 
+            "-ar", "16000", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
             "-t", str(int(STT_TIMEOUT)), 
-            "-af", "highpass=f=200, lowpass=f=3500", # 仅保留人声频率
-            "-ar", "16000", "-ac", "1", temp_audio
+            "-af", "highpass=f=200, lowpass=f=3500", 
+            "-ac", "1", temp_audio
         ]
         # 运行录音，捕获输出以备诊断
         subprocess.run(cmd_record, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
