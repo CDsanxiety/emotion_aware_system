@@ -31,12 +31,13 @@ def capture_and_transcribe():
             logger.error("[STT] 录音文件不存在或太小")
             return ""
 
-        # 2. 音频标准化处理 (-3dB)
-        logger.info("[STT] 正在对音频进行标准化处理 (-3dB)...")
+        # 2. 音频标准化处理 (-3dB) + 强制 PCM 16bit 编码
+        logger.info("[STT] 正在进行标准化并转换为标准 PCM 16bit 格式...")
         cmd_norm = [
             "ffmpeg", "-y", "-i", temp_audio, 
             "-af", "loudnorm=I=-16:TP=-3:LRA=11", 
-            "-ar", "16000", norm_audio
+            "-c:a", "pcm_s16le", # 强制使用阿里云最兼容的 16bit 编码
+            "-ar", "16000", "-ac", "1", norm_audio
         ]
         subprocess.run(cmd_norm, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
