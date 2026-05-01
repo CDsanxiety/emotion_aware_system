@@ -1,5 +1,6 @@
 # src/core/orchestrator.py
-import threading
+import os
+import time
 import cv2
 from src.cloud import brain, stt, tts
 from src.hardware.physical_interface import PhysicalInterface
@@ -66,7 +67,7 @@ class EmotionSystemOrchestrator:
 
         # 4. 硬件响应：灯光 + 语音 + 音乐
         action = response.get("action", "none")
-        
+
         # 摔倒报警：最高优先级，立即触发紧急灯光和语音
         if action == "fall_alert":
             logger.warning("[Safety] ⚠️ 检测到摔倒！触发紧急报警！")
@@ -75,9 +76,15 @@ class EmotionSystemOrchestrator:
         else:
             self.hw.set_led_emotion(emotion)
             tts.speak(reply)
-            # 背景音乐
-            if action.startswith("music"):
-                self.hw.play_sound("music/test.mp3")
+            # 根据情绪自动播放对应音乐（不依赖大模型的 action 字段）
+            music_map = {
+                "happy": "music/happy.mp3",
+                "sad":   "music/calm.mp3",
+            }
+            music_file = music_map.get(emotion)
+            if music_file and os.path.exists(music_file):
+                logger.info(f"[Music] 情绪 {emotion} 触发音乐: {music_file}")
+                self.hw.play_sound(music_file, wait=False)
 
     def run(self):
         self.running = True
