@@ -22,6 +22,7 @@ def capture_and_transcribe():
     try:
         # 1. 使用 FFmpeg 录音 (16000Hz 减轻树莓派 3B USB 总线压力)
         logger.info(f"[STT] 正在录音 (时长: {STT_TIMEOUT}s)...")
+        # thread_queue_size: 防止缓冲区溢出; ar 16000: 减少数据量
         cmd_record = [
             "ffmpeg", "-y", "-f", "alsa", "-thread_queue_size", "1024",
             "-ar", "16000", "-i", f"plughw:{AUDIO_INPUT_INDEX},0",
@@ -40,7 +41,7 @@ def capture_and_transcribe():
         cmd_norm = [
             "ffmpeg", "-y", "-i", temp_audio,
             "-af", "loudnorm=I=-16:TP=-3:LRA=11",
-            "-c:a", "pcm_s16le",   # 强制 16bit PCM，阿里云最兼容的格式
+            "-c:a", "pcm_s16le",   # 强制使用阿里云最兼容的格式
             "-ar", "16000", "-ac", "1",
             norm_audio
         ]
@@ -53,14 +54,14 @@ def capture_and_transcribe():
         with open(target_file, 'rb') as f:
             audio_data = f.read()
 
-        # 使用 Recognition 接口，通过 data 参数传入二进制数据
-        response = Recognition.call(
+        # 正确姿势：先实例化 Recognition，再调用实例的 .call() 方法
+        recognizer = Recognition(
             model='paraformer-realtime-v2',
             format='wav',
             sample_rate=16000,
-            data=audio_data,
-            language_hints=['zh', 'en']
+            callback=None  # 非流式模式，不需要回调
         )
+        response = recognizer.call(target_file)
 
         if response.status_code == 200:
             # 提取识别出的文字
