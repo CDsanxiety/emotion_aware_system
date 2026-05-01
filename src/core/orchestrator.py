@@ -65,14 +65,19 @@ class EmotionSystemOrchestrator:
         print(f">>>> [智能体回复]: {reply}")
 
         # 4. 硬件响应：灯光 + 语音 + 音乐
-        self.hw.set_led_emotion(emotion)
+        action = response.get("action", "none")
         
-        # 播放语音 (TTS)
-        tts.speak(reply)
-        
-        # 如果需要播放背景音乐 (test.mp3)
-        if action.startswith("music"):
-            self.hw.play_sound("music/test.mp3")
+        # 摔倒报警：最高优先级，立即触发紧急灯光和语音
+        if action == "fall_alert":
+            logger.warning("[Safety] ⚠️ 检测到摔倒！触发紧急报警！")
+            self.hw.set_led_emotion("fall")  # 紧急红色
+            tts.speak(reply)
+        else:
+            self.hw.set_led_emotion(emotion)
+            tts.speak(reply)
+            # 背景音乐
+            if action.startswith("music"):
+                self.hw.play_sound("music/test.mp3")
 
     def run(self):
         self.running = True

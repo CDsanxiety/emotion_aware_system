@@ -54,6 +54,7 @@ class PhysicalInterface:
             "sad": (0, 0, 255),        # 蓝
             "angry": (255, 0, 0),      # 红
             "neutral": (255, 100, 0),  # 暖黄
+            "fall": (255, 0, 0),       # 紧急红（摔倒报警）
         }
         
         color = colors.get(emotion, (255, 255, 255)) 
