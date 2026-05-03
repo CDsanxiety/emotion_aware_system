@@ -75,16 +75,19 @@ class EmotionSystemOrchestrator:
             tts.speak(reply)
         else:
             self.hw.set_led_emotion(emotion)
+            # 播放语音 (TTS)，此时大模型的 reply 中已经自带了"点歌台词"
             tts.speak(reply)
-            # 根据情绪自动播放对应音乐（不依赖大模型的 action 字段）
-            music_map = {
-                "happy": "music/happy.mp3",
-                "sad":   "music/calm.mp3",
-            }
-            music_file = music_map.get(emotion)
-            if music_file and os.path.exists(music_file):
-                logger.info(f"[Music] 情绪 {emotion} 触发音乐: {music_file}")
-                self.hw.play_sound(music_file, wait=False)
+            
+            # 根据大模型输出的 action 决定是否播放音乐
+            if action.startswith("music_"):
+                # 提取 music_ 之后的部分，比如 'happy', 'sad', 'thinking'
+                music_type = action.replace("music_", "")
+                music_file = f"music/{music_type}.mp3"
+                if os.path.exists(music_file):
+                    logger.info(f"[Music] 模型指令触发播放音乐: {music_file}")
+                    self.hw.play_sound(music_file, wait=False)
+                else:
+                    logger.warning(f"[Music] 找不到音乐文件: {music_file}")
 
     def run(self):
         self.running = True
